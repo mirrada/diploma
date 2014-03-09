@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "mpi.h"
 #include <stdio.h>
 #include <string.h>
 #include <complex>
@@ -8,7 +9,10 @@
 #include <map>
 #include <iomanip>
 #include "lapacke.h"
-#include "mpi.h"
+#include "omp.h"
+
+
+
 
 
 double WANTED = 2;
@@ -514,7 +518,7 @@ int main(int argc, char* argv[]) {
 		a[i] = new ComplexArray[1];
 	}
 
-	srand(time(NULL) + k*k*1000);
+	srand(static_cast<unsigned int>(time(NULL)) + k*k*1000);
 
 	sprintf_s(fileName, "logger%f_%d_%d_%dproc.txt", WANTED, MAXMATRIXINT, COMPLEX, k);
 
