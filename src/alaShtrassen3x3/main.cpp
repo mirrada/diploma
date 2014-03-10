@@ -1,5 +1,10 @@
 #include "stdafx.h"
+
+#ifndef _DEBUG
 #include "mpi.h"
+#include "omp.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <complex>
@@ -9,13 +14,10 @@
 #include <map>
 #include <iomanip>
 #include "lapacke.h"
-#include "omp.h"
 
+//#define GROUP1
 
-
-
-
-double WANTED = 2;
+double WANTED = 1;
 int MAXINSOLUTION = 1000000;
 double MAXDELTA = 0.00001;
 bool COMPLEX = 1;
@@ -44,7 +46,6 @@ char fileName[40];
 double fdelta[N][N][N][N][N][N] = { 0 };
 
 void setStaticFdelta() {
-//#pragma omp parallel for
 	for (int j = 0; j < N; j++)
 	for (int l = 0; l < N; l++)
 	for (int s = 0; s < N; s++) {
@@ -66,7 +67,6 @@ void setRandomInitialBC() {
 }
 
 void prepareBCmul() {
-//#pragma omp parallel for 
 	for (int t = 0; t < T; t++)
 	for (int k = 0; k < N; k++)
 	for (int l = 0; l < N; l++)
@@ -77,7 +77,6 @@ void prepareBCmul() {
 
 double getResidual() {
 	double resid = 0;
-//#pragma omp parallel for reduction(+ : resid) 
 	for (int i = 0; i < N; i++) {
 		for (int j = 0; j < N; j++){
 			for (int k = 0; k < N; k++){
@@ -93,7 +92,13 @@ double getResidual() {
 						Complex sum = 0;
 						for (int t = 0; t < T; t++){
 							sum += (*a[t])[i][j] * bcmul[t][k][l][r][s];
-							sum += (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+#ifdef GROUP1
+							if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+								sum -= (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+							else
+#endif
+								sum += (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+
 						}
 						sum -= fdelta[i][j][k][l][r][s];
 						resid += std::norm(sum);
@@ -136,7 +141,6 @@ void printMatrixesABC(){
 }
 
 /*------------------------------for LE solution---------------------------------------------------------------------------------------*/
-
 
 int const SIZEB = 2; /*columns in right hand matrix b. first for system a_t00, second for a_t11+a_t22*/
 int const LSNUM = 3; /*number of systems for i!=j*/
@@ -321,15 +325,16 @@ void fillLLSsub(int i, int j, int rowStart) {
 			LLST[col + t][row] = bcmul[t][k][l][r][s];
 			LLST[colcol + t][row] = bcmul[t][kk][ll][rr][ss];
 			bLLS[row] = fdelta[i][j][k][l][r][s];
+#ifdef GROUP1
+			if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+				LLST[colcol + t][row] *= -1;
+#endif
 		}
 	}
 }
 
 void fillLLS(){
-
 	memset(LLST, 0, sizeof(LLST));
-	//int i = 0; int j = 0;
-//#pragma omp parallel for 
 	for (int k = 0; k < N; k++)
 	for (int l = 0; l < N; l++)
 	for (int r = 0; r < N; r++) {
@@ -340,34 +345,24 @@ void fillLLS(){
 		int ss = (2 * s) % N;
 		int row = k*N*N + l*N + r;
 		for (int t = 0; t < T; t++) {
-			LLST[t][row] = bcmul[t][k][l][r][s] + bcmul[t][kk][ll][rr][ss];
+			LLST[t][row] = bcmul[t][k][l][r][s];
+#ifdef GROUP1
+			if (!k ^ !l ^ !r ^ !s)
+				LLST[t][row] -= bcmul[t][kk][ll][rr][ss];
+			else
+#endif
+				LLST[t][row] += bcmul[t][kk][ll][rr][ss];
 			bLLS[row] = fdelta[0][0][k][l][r][s];
 		}
 	}
 
-//#pragma omp parallel sections
-	{
-//#pragma omp section
-		{
-			fillLLSsub(0, 1, N*N*N);
-		}
-//#pragma omp section
-		{
-			fillLLSsub(1, 0, 2 * N*N*N);
-		}
-//#pragma omp section
-		{
-			fillLLSsub(1, 1, 3 * N*N*N);
-		}
-//#pragma omp section
-		{
-			fillLLSsub(2, 1, 4 * N*N*N);
-		}
-	}
+	fillLLSsub(0, 1, N*N*N);
+	fillLLSsub(1, 0, 2 * N*N*N);
+	fillLLSsub(1, 1, 3 * N*N*N);
+	fillLLSsub(2, 1, 4 * N*N*N);
 }
 
 void getAijFromLLS(){
-//#pragma omp parallel for 
 	for (int i = 0; i < N; i++)
 	for (int j = 0; j < N; j++)
 	for (int t = 0; t < T; t++)
@@ -377,7 +372,6 @@ void getAijFromLLS(){
 double prepareLLSSol(){
 
 	fillLLS();
-	//transposeLLS();
 
 	int n4 = NROW;
 	int n2 = N*N*T;
@@ -400,11 +394,10 @@ double prepareLLSSol(){
 		return -1;
 
 	for (int i = 0; i < n2; i++)
-	if (abs(bLLS[i]) > MAXINSOLUTION) 
+	if (abs(bLLS[i]) > MAXINSOLUTION)
 		return -1;
 
 	double norm = 0.0;
-//#pragma omp parallel for reduction(+ : norm)
 	for (int i = n2; i < n4; i++)
 		norm += std::norm(bLLS[i]);
 	return norm;
@@ -413,13 +406,13 @@ double prepareLLSSol(){
 /*---------------------------------------------------------------------------------------------------------------------------------------*/
 
 
-/*returns 0 if OK. 1,2 if there is a problem with solution and makes resudual = WANTED + 1.
-*/
+/*returns 0 if OK. 1,2 if there is a problem with solution and makes resudual = WANTED + 1.*/
 int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 	prepareBCmul();
 	double newResid;
 
-	/*prepareLLSSol();
+#ifdef DEBUG
+	prepareLLSSol();
 	getAijFromLLS();
 
 	newResid = getResidual();
@@ -432,7 +425,8 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 		residual = WANTED + 1;
 		return 2;
 	}
-	residual = newResid;*/
+	residual = newResid;
+#endif
 
 	prepareLEsol(numIJ);
 	getAijFromSolution(numIJ);
@@ -475,15 +469,19 @@ void byRandom(NumerationLSVariables numIJ[3]) {
 
 		long cycle = 0;
 		while (abs(delta) > MAXDELTA) {
+#ifdef DEBUG
 			double t = omp_get_wtime();
+#endif
 			if (nextApprox(delta, residual, numIJ))
 				break;
 			cycle++;
 			if (cycle % 5000 == 0)
 				std::cout << "cycle = " << cycle << std::endl;
 
+#ifdef DEBUG
 			std::cout << omp_get_wtime() - t << std::endl;
 			t = omp_get_wtime();
+#endif
 		}
 
 		printApprox(residual);
@@ -508,17 +506,17 @@ void hardCode(NumerationLSVariables numIJ[3]) {
 
 int main(int argc, char* argv[]) {
 	int k = 0;
-
+#ifndef _DEBUG
 	MPI_Init(&argc, &argv);                       /* starts MPI */
 	MPI_Comm_rank(MPI_COMM_WORLD, &k); /* get current process id */
-
+#endif
 	for (int i = 0; i < 3; i++) {
 		b[i] = new ComplexArray[1];
 		c[i] = new ComplexArray[1];
 		a[i] = new ComplexArray[1];
 	}
 
-	srand(static_cast<unsigned int>(time(NULL)) + k*k*1000);
+	srand(static_cast<unsigned int>(time(NULL)) + k*k * 1000);
 
 	sprintf_s(fileName, "logger%f_%d_%d_%dproc.txt", WANTED, MAXMATRIXINT, COMPLEX, k);
 
@@ -556,8 +554,9 @@ int main(int argc, char* argv[]) {
 		delete[] b[i];
 		delete[] c[i];
 	}
-
+#ifndef _DEBUG
 	MPI_Finalize();
+#endif
 	return(0);
 }
 
