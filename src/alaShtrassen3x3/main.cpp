@@ -13,7 +13,7 @@
 #include <fstream>
 #include <map>
 #include <iomanip>
-#include "lapacke.h"
+#include "mkl.h"
 
 //#define GROUP1
 
@@ -375,20 +375,9 @@ double prepareLLSSol(){
 
 	int n4 = NROW;
 	int n2 = N*N*T;
-	int nrhs = 1;
-	lapack_complex_double* work;
-	lapack_complex_double wkopt;
-	int lwork = -1;
-	lapack_int info;
 
-	LAPACK_zgels("No transpose", &n4, &n2, &nrhs, (lapack_complex_double*)LLST, &n4,
-		(lapack_complex_double*)bLLS, &n4, &wkopt, &lwork, &info);
-	lwork = (int)wkopt.real;
-	work = new lapack_complex_double[lwork];
-	/* Solve the equations LLS*X = bLLS */
-	LAPACK_zgels("No transpose", &n4, &n2, &nrhs, (lapack_complex_double*)LLST, &n4,
-		(lapack_complex_double*)bLLS, &n4, work, &lwork, &info);
-	delete[] work;
+	int info = LAPACKE_zgels(LAPACK_COL_MAJOR, 'N', n4, n2, 1, (lapack_complex_double*)LLST, n4,
+		(lapack_complex_double*)bLLS, n4);
 
 	if (info)
 		return -1;
@@ -411,10 +400,9 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 	prepareBCmul();
 	double newResid;
 
-#ifdef DEBUG
+#ifdef _DEBUG
 	prepareLLSSol();
 	getAijFromLLS();
-
 	newResid = getResidual();
 	if (newResid < 0) {
 		residual = WANTED + 1;
@@ -426,6 +414,12 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 		return 2;
 	}
 	residual = newResid;
+
+
+	logger.open(fileName, std::ios::app);
+	logger << "resid  = " << residual << std::endl;
+	printMatrixesABC();
+	logger.close();
 #endif
 
 	prepareLEsol(numIJ);
@@ -442,6 +436,12 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 		return 2;
 	}
 	residual = newResid;
+#ifdef _DEBUG
+	logger.open(fileName, std::ios::app);
+	logger << "resid  = " << residual << std::endl;
+	printMatrixesABC();
+	logger.close();
+#endif
 	swapABC();
 	return 0;
 }
