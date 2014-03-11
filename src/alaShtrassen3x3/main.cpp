@@ -15,13 +15,11 @@
 #include <iomanip>
 #include "mkl.h"
 
-//#define GROUP1
-
 double WANTED = 1;
 int MAXINSOLUTION = 1000000;
 double MAXDELTA = 0.00001;
 bool COMPLEX = 1;
-int MAXMATRIXINT = 3;
+int MAXMATRIXINT = 11;
 
 
 
@@ -351,7 +349,7 @@ void fillLLS(){
 				LLST[t][row] -= bcmul[t][kk][ll][rr][ss];
 			else
 #endif
-				LLST[t][row] += bcmul[t][kk][ll][rr][ss];
+			LLST[t][row] += bcmul[t][kk][ll][rr][ss];
 			bLLS[row] = fdelta[0][0][k][l][r][s];
 		}
 	}
@@ -422,6 +420,21 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 	logger.close();
 #endif
 
+#ifdef GROUP1
+	prepareLLSSol();
+	getAijFromLLS();
+	newResid = getResidual();
+	if (newResid < 0) {
+		residual = WANTED + 1;
+		return 1;
+	}
+	delta = residual - newResid;
+	if (delta < -EPSMACH) {
+		residual = WANTED + 1;
+		return 2;
+	}
+	residual = newResid;
+#else
 	prepareLEsol(numIJ);
 	getAijFromSolution(numIJ);
 
@@ -436,6 +449,8 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 		return 2;
 	}
 	residual = newResid;
+#endif
+
 #ifdef _DEBUG
 	logger.open(fileName, std::ios::app);
 	logger << "resid  = " << residual << std::endl;
@@ -469,7 +484,7 @@ void byRandom(NumerationLSVariables numIJ[3]) {
 
 		long cycle = 0;
 		while (abs(delta) > MAXDELTA) {
-#ifdef DEBUG
+#ifdef _DEBUG
 			double t = omp_get_wtime();
 #endif
 			if (nextApprox(delta, residual, numIJ))
@@ -478,7 +493,7 @@ void byRandom(NumerationLSVariables numIJ[3]) {
 			if (cycle % 5000 == 0)
 				std::cout << "cycle = " << cycle << std::endl;
 
-#ifdef DEBUG
+#ifdef _DEBUG
 			std::cout << omp_get_wtime() - t << std::endl;
 			t = omp_get_wtime();
 #endif

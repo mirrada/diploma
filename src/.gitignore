@@ -7,3 +7,7 @@ ipch/
 */Release/
 Debug/
 Release/
+*/group1-debug/
+*/group1-release/
+group1-debug/
+group1-release/
