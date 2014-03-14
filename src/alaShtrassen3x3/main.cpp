@@ -2,6 +2,7 @@
 
 #ifndef _DEBUG
 #include "mpi.h"
+#else
 #include "omp.h"
 #endif
 
@@ -18,19 +19,18 @@
 double WANTED = 1;
 int MAXINSOLUTION = 1000000;
 double MAXDELTA = 0.00001;
-bool COMPLEX = 1;
-int MAXMATRIXINT = 11;
-
-
 
 double const EPSMACH = 2.2e-16;
-int const MAXITER = 1000;
 int const N = 3;
 int const T = 3;
-bool const random = 1;
+
+int const MAXITER = 1000000;
+bool const COMPLEX = 1;
+int const MAXMATRIXINT = 100;
 
 typedef std::complex<double> Complex;
 typedef Complex ComplexArray[N][N];
+
 ComplexArray* a[T];
 ComplexArray* b[T];
 ComplexArray* c[T];
@@ -99,7 +99,8 @@ double getResidual() {
 
 						}
 						sum -= fdelta[i][j][k][l][r][s];
-						resid += std::norm(sum);
+						double temp = std::norm(sum);
+						resid += temp;
 					}
 				}
 			}
@@ -109,7 +110,7 @@ double getResidual() {
 }
 
 void swapABC() {
-	Complex(*temp)[N][N];
+	ComplexArray* temp;
 	for (int t = 0; t < T; t++) {
 		temp = a[t];
 		a[t] = b[t];
@@ -118,27 +119,40 @@ void swapABC() {
 	}
 }
 
-void print_matrix(char* desc, int z, int n, int m, Complex* a) {
-	lapack_int i, j;
+void printMatrix(char* desc, int z, int n, int m, Complex* a) {
 	logger << desc << z << std::endl;
-	logger << "{ ";
-	for (i = 0; i < n; i++) {
-		for (j = 0; j < m; j++)
-			logger << "Complex" << a[i*m + j] << ", ";
-		logger << std::endl << "  ";
+	for (int i = 0; i < n; i++) {
+		for (int j = 0; j < m; j++)
+			logger << a[i*m + j] << "  ";
+		logger << std::endl;
 	}
-	logger << "}" << std::endl;
 }
 
 void printMatrixesABC(){
 	for (int t = 0; t < T; t++) {
-		print_matrix("a", t, N, N, (Complex*)a[t]);
-		print_matrix("b", t, N, N, (Complex*)b[t]);
-		print_matrix("c", t, N, N, (Complex*)c[t]);
+		printMatrix("a", t, N, N, (Complex*)a[t]);
+		printMatrix("b", t, N, N, (Complex*)b[t]);
+		printMatrix("c", t, N, N, (Complex*)c[t]);
 	}
 }
 
-/*------------------------------for LE solution---------------------------------------------------------------------------------------*/
+void readMatrix(std::ifstream& input, int n, int m, Complex* a) {
+	for (int i = 0; i < n; i++)
+	for (int j = 0; j < m; j++)
+		input >> a[i*m + j];
+}
+
+void readMatrixesABC(char* fileName){
+	std::ifstream inputFile;
+	inputFile.open(fileName, std::ifstream::in);
+	for (int t = 0; t < T; t++) {
+		readMatrix(inputFile, N, N, (Complex*)a[t]);
+		readMatrix(inputFile, N, N, (Complex*)b[t]);
+		readMatrix(inputFile, N, N, (Complex*)c[t]);
+	}
+}
+
+/*------------------------------for LE solution------------------------------*/
 
 int const SIZEB = 2; /*columns in right hand matrix b. first for system a_t00, second for a_t11+a_t22*/
 int const LSNUM = 3; /*number of systems for i!=j*/
@@ -300,7 +314,7 @@ int prepareLEsol(NumerationLSVariables numIJ[3]) {
 	return 0;
 }
 
-/*---------------------------------for LLS solution------------------------------------------------------------------------------------*/
+/*---------------------------------for LLS solution------------------------------*/
 int const NROW = 135;
 Complex  LLST[N*N*T][NROW] = { 0 };
 Complex bLLS[NROW] = { 0 };
@@ -349,7 +363,7 @@ void fillLLS(){
 				LLST[t][row] -= bcmul[t][kk][ll][rr][ss];
 			else
 #endif
-			LLST[t][row] += bcmul[t][kk][ll][rr][ss];
+				LLST[t][row] += bcmul[t][kk][ll][rr][ss];
 			bLLS[row] = fdelta[0][0][k][l][r][s];
 		}
 	}
@@ -383,33 +397,49 @@ double prepareLLSSol(){
 	for (int i = 0; i < n2; i++)
 	if (abs(bLLS[i]) > MAXINSOLUTION)
 		return -1;
-
-	double norm = 0.0;
-	for (int i = n2; i < n4; i++)
-		norm += std::norm(bLLS[i]);
-	return norm;
+	return 0;
 }
 
-/*---------------------------------------------------------------------------------------------------------------------------------------*/
-
+/*--------------------------------------------------------------------------------*/
 
 /*returns 0 if OK. 1,2 if there is a problem with solution and makes resudual = WANTED + 1.*/
 int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 	prepareBCmul();
 	double newResid;
 
-#ifdef _DEBUG
-	prepareLLSSol();
-	getAijFromLLS();
-	newResid = getResidual();
-	if (newResid < 0) {
+#ifdef GROUP1
+	if (prepareLLSSol() < 0) {
 		residual = WANTED + 1;
 		return 1;
 	}
+	getAijFromLLS();
+	newResid = getResidual();
+	if (newResid < 0) {
+		residual = WANTED + 2;
+		return 2;
+	}
 	delta = residual - newResid;
 	if (delta < -EPSMACH) {
+		residual = WANTED + 3;
+		return 3;
+	}
+	residual = newResid;
+#else
+#ifdef _DEBUG
+	if (prepareLLSSol() < 0) {
 		residual = WANTED + 1;
+		return 1;
+	}
+	getAijFromLLS();
+	newResid = getResidual();
+	if (newResid < 0) {
+		residual = WANTED + 2;
 		return 2;
+	}
+	delta = residual - newResid;
+	if (delta < -EPSMACH) {
+		residual = WANTED + 3;
+		return 3;
 	}
 	residual = newResid;
 
@@ -419,22 +449,6 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 	printMatrixesABC();
 	logger.close();
 #endif
-
-#ifdef GROUP1
-	prepareLLSSol();
-	getAijFromLLS();
-	newResid = getResidual();
-	if (newResid < 0) {
-		residual = WANTED + 1;
-		return 1;
-	}
-	delta = residual - newResid;
-	if (delta < -EPSMACH) {
-		residual = WANTED + 1;
-		return 2;
-	}
-	residual = newResid;
-#else
 	prepareLEsol(numIJ);
 	getAijFromSolution(numIJ);
 
@@ -445,7 +459,7 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 	}
 	delta = residual - newResid;
 	if (delta < -EPSMACH) {
-		residual = WANTED + 1;
+		residual = WANTED + 2;
 		return 2;
 	}
 	residual = newResid;
@@ -472,7 +486,7 @@ void printApprox(double residual) {
 	}
 }
 
-void byRandom(NumerationLSVariables numIJ[3]) {
+void findSolutions(NumerationLSVariables numIJ[3]) {
 	double residual, delta;
 	long attempt = 0;
 
@@ -484,7 +498,7 @@ void byRandom(NumerationLSVariables numIJ[3]) {
 
 		long cycle = 0;
 		while (abs(delta) > MAXDELTA) {
-#ifdef _DEBUG
+#ifdef _DEBUG 
 			double t = omp_get_wtime();
 #endif
 			if (nextApprox(delta, residual, numIJ))
@@ -508,14 +522,27 @@ void byRandom(NumerationLSVariables numIJ[3]) {
 	}
 }
 
-void hardCode(NumerationLSVariables numIJ[3]) {
-	double residual, delta;
+void morePrecise(NumerationLSVariables numIJ[3]) {
+	double residual, delta = 1;
+
+	readMatrixesABC("input.txt");
+
 	for (int trial = 0; trial < MAXITER; trial++) {
-		delta = 1;
-		residual = 10;
-		prepareBCmul();
+		if (nextApprox(delta, residual, numIJ)){
+			logger.open(fileName, std::ios::app);
+			logger << "resid  = " << residual << " delta  = " << delta << std::endl;
+			logger << "trial  = " << trial << std::endl;
+			printMatrixesABC();
+			logger.close();
+			break;
+		}
+	}
+	for (int trial = 0; trial < 10; trial++) {
 		nextApprox(delta, residual, numIJ);
-		printApprox(residual);
+		logger.open(fileName, std::ios::app);
+		logger << "resid  = " << residual << " delta  = " << delta << std::endl;
+		printMatrixesABC();
+		logger.close();
 	}
 }
 
@@ -525,19 +552,18 @@ int main(int argc, char* argv[]) {
 	MPI_Init(&argc, &argv);                       /* starts MPI */
 	MPI_Comm_rank(MPI_COMM_WORLD, &k); /* get current process id */
 #endif
-	for (int i = 0; i < 3; i++) {
-		b[i] = new ComplexArray[1];
-		c[i] = new ComplexArray[1];
-		a[i] = new ComplexArray[1];
-	}
 
 	srand(static_cast<unsigned int>(time(NULL)) + k*k * 1000);
 
-	sprintf_s(fileName, "logger%f_%d_%d_%dproc.txt", WANTED, MAXMATRIXINT, COMPLEX, k);
+#ifdef PRECISE
+	sprintf_s(fileName, "loggerPrecise_%dproc.txt", k);
+#else
+	sprintf_s(fileName, "loggerFind_maxint%d_%dproc.txt", MAXMATRIXINT, k);
+#endif
 
 	logger.open(fileName);
 	logger << std::fixed;
-	logger.precision(5);
+	logger.precision(15);
 	logger.close();
 
 	setStaticFdelta();
@@ -550,25 +576,19 @@ int main(int argc, char* argv[]) {
 		NumerationLSVariables(condIJ10),
 		NumerationLSVariables(condIJ21) };
 
-	if (random)
-		logger.precision(5);
-	else
-		logger.precision(15);
-	logger.close();
-
-
-	if (random) {
-		byRandom(numIJ);
-	}
-	else {
-		hardCode(numIJ);
-	}
-
 	for (int i = 0; i < 3; i++) {
-		delete[] a[i];
-		delete[] b[i];
-		delete[] c[i];
+		a[i] = new ComplexArray[1];
+		b[i] = new ComplexArray[1];
+		c[i] = new ComplexArray[1];
 	}
+
+#ifdef PRECISE
+	morePrecise(numIJ);
+#else
+	findSolutions(numIJ);
+#endif
+
+
 #ifndef _DEBUG
 	MPI_Finalize();
 #endif
