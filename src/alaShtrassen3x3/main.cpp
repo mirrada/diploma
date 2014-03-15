@@ -13,8 +13,21 @@
 #include <iostream>
 #include <fstream>
 #include <map>
+#include <array>
 #include <iomanip>
 #include "mkl.h"
+
+#define BruteForceKLRSstart for (int k = 0; k < N; k++)\
+for (int l = 0; l < N; l++)\
+for (int r = 0; r < N; r++){\
+	int ii = (2 * i) % N; \
+	int jj = (2 * j) % N; \
+	int kk = (2 * k) % N; \
+	int ll = (2 * l) % N; \
+	int rr = (2 * r) % N; \
+	int s = (i + k + r + 2 * l + 2 * j) % N; \
+	int ss = (2 * s) % N;
+#define BruteForceKLRSend   }
 
 double WANTED = 1;
 int MAXINSOLUTION = 1000000;
@@ -23,9 +36,9 @@ double MAXDELTA = 0.00001;
 double const EPSMACH = 2.2e-16;
 int const N = 3;
 int const T = 3;
+const int CONJ = 1;
 
 int const MAXITER = 1000000;
-bool const COMPLEX = 1;
 int const MAXMATRIXINT = 100;
 
 typedef std::complex<double> Complex;
@@ -38,7 +51,7 @@ ComplexArray* c[T];
 Complex bcmul[T][N][N][N][N]; /* t, k, l, r, s pre-calculation b_tkl*c_trs */
 
 std::ofstream logger;
-char fileName[40];
+char fileName[50];
 
 
 double fdelta[N][N][N][N][N][N] = { 0 };
@@ -54,13 +67,37 @@ void setStaticFdelta() {
 
 void setRandomInitialBC() {
 	int n = MAXMATRIXINT;
-	for (int i = 0; i < 3; i++)
-	for (int j = 0; j < 3; j++)
-	for (int k = 0; k < 3; k++) {
-		(*b[i])[j][k] = Complex(std::rand() % (2 * n) - n,
-			COMPLEX * (std::rand() % (2 * n) - n));
-		(*c[i])[j][k] = Complex(std::rand() % (2 * n) - n,
-			COMPLEX * (std::rand() % (2 * n) - n));
+	if (CONJ) {
+		for (int k = 0; k < N; k++) {
+			for (int i = 0; i < N - 1; i++)
+			for (int j = 0; j < i + 2; j++){
+				(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+					(std::rand() % (2 * n) - n));
+				(*a[k])[2 * i%N][2 * j%N] = std::conj((*a[k])[i][j]);
+				(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+					(std::rand() % (2 * n) - n));
+				(*b[k])[2 * i%N][2 * j%N] = std::conj((*b[k])[i][j]);
+				(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+					(std::rand() % (2 * n) - n));
+				(*c[k])[2 * i%N][2 * j%N] = std::conj((*c[k])[i][j]);
+			}
+			(*a[k])[0][0] = std::rand() % (2 * n) - n;
+			(*b[k])[0][0] = std::rand() % (2 * n) - n;
+			(*c[k])[0][0] = std::rand() % (2 * n) - n;
+		}
+	}
+	else {
+		int n = MAXMATRIXINT;
+		for (int k = 0; k < N; k++)
+		for (int i = 0; i < N; i++)
+		for (int j = 0; j < N; j++){
+			(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+				(std::rand() % (2 * n) - n));
+			(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+				(std::rand() % (2 * n) - n));
+			(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+				(std::rand() % (2 * n) - n));
+		}
 	}
 }
 
@@ -75,36 +112,23 @@ void prepareBCmul() {
 
 double getResidual() {
 	double resid = 0;
-	for (int i = 0; i < N; i++) {
-		for (int j = 0; j < N; j++){
-			for (int k = 0; k < N; k++){
-				for (int l = 0; l < N; l++){
-					for (int r = 0; r < N; r++){
-						int ii = (N - i) % N;
-						int jj = (N - j) % N;
-						int kk = (N - k) % N;
-						int ll = (N - l) % N;
-						int rr = (N - r) % N;
-						int s = (i + k + r + 2 * l + 2 * j) % N;
-						int ss = (N - s) % N;
-						Complex sum = 0;
-						for (int t = 0; t < T; t++){
-							sum += (*a[t])[i][j] * bcmul[t][k][l][r][s];
+	for (int i = 0; i < N; i++)
+	for (int j = 0; j < N; j++){
+		BruteForceKLRSstart{
+		Complex sum = 0;
+		for (int t = 0; t < T; t++){
+			sum += (*a[t])[i][j] * bcmul[t][k][l][r][s];
 #ifdef GROUP1
-							if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
-								sum -= (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
-							else
+			if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+				sum -= (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+			else
 #endif
-								sum += (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
-
-						}
-						sum -= fdelta[i][j][k][l][r][s];
-						double temp = std::norm(sum);
-						resid += temp;
-					}
-				}
-			}
+				sum += (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
 		}
+		sum -= fdelta[i][j][k][l][r][s];
+		double temp = std::norm(sum);
+		resid += temp;
+	}BruteForceKLRSend
 	}
 	return resid / 2;
 }
@@ -311,67 +335,86 @@ int prepareLEsol(NumerationLSVariables numIJ[3]) {
 	if (info[i])
 		return -1;
 
+	getAijFromSolution(numIJ);
+
 	return 0;
 }
 
 /*---------------------------------for LLS solution------------------------------*/
-int const NROW = 135;
-Complex  LLST[N*N*T][NROW] = { 0 };
-Complex bLLS[NROW] = { 0 };
+int const NROWpart = 27;
+int const NROW = 5 * NROWpart;
 
-void fillLLSsub(int i, int j, int rowStart) {
-	int jj = 2 * j % N;
-	int ii = 2 * i % N;
-	int col = i*N*N + j*N;
-	int colcol = ii*N*N + jj*N;
-	for (int k = 0; k < N; k++)
-	for (int l = 0; l < N; l++)
-	for (int r = 0; r < N; r++) {
-		int s = (i + k + r + 2 * (l + j)) % N;
-		int kk = (2 * k) % N;
-		int ll = (2 * l) % N;
-		int rr = (2 * r) % N;
-		int ss = (2 * s) % N;
-		int row = rowStart + k*N*N + l*N + r;
-		for (int t = 0; t < T; t++) {
-			LLST[col + t][row] = bcmul[t][k][l][r][s];
-			LLST[colcol + t][row] = bcmul[t][kk][ll][rr][ss];
-			bLLS[row] = fdelta[i][j][k][l][r][s];
+std::array<std::array<Complex, N*N*T>, NROW> LLST;
+std::array<Complex, NROW> bLLS;
+
+std::array<std::array<Complex, 6>, NROWpart> LLST6;
+std::array<std::array<Complex, 3>, NROWpart> LLST3;
+std::array<Complex, NROWpart> bLLSpart;
+
+/*int col = i*N*N + j*N;  int colcol = ii*N*N + jj*N;*/
+template<unsigned int ROW, unsigned int COL>
+void fillLLSsub(int i, int j, int rowStart, int col, int colcol, std::array<std::array<Complex, COL>, ROW> &arr, std::array<Complex, ROW> &b) {
+	BruteForceKLRSstart{
+	int row = rowStart + k*N*N + l*N + r;
+	for (int t = 0; t < T; t++) {
+		double one = 1;
+		arr[row][col + t] += bcmul[t][k][l][r][s];
 #ifdef GROUP1
-			if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
-				LLST[colcol + t][row] *= -1;
+		if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+			one = -1;
 #endif
-		}
+		arr[row][colcol + t] += one * bcmul[t][kk][ll][rr][ss];
+		b[row] = fdelta[i][j][k][l][r][s];
 	}
+}BruteForceKLRSend
+}
+
+template<unsigned int ROW, unsigned int COL>
+int prepareLLSSolOnePart(int i, int j, int colcol, std::array<std::array<Complex, COL>, ROW> &arr){
+	memset(arr.data(), 0, sizeof(arr));
+
+	fillLLSsub(i, j, 0, 0, colcol, arr, bLLSpart);
+	int info = LAPACKE_zgels(LAPACK_ROW_MAJOR, 'N', ROW, COL, 1,
+		(lapack_complex_double*)arr.data(), COL,
+		(lapack_complex_double*)bLLSpart.data(), 1);
+
+	if (info)
+		return info;
+	for (unsigned int k = 0; k < COL; k++)
+	if (abs(bLLSpart[k]) > MAXINSOLUTION)
+		bLLSpart[k] = 0;
+	for (int t = 0; t < T; t++) {
+		(*a[t])[i][j] = bLLSpart[t];
+		(*a[t])[2 * i%N][2 * j%N] = bLLSpart[t + colcol];
+	}
+	return 0;
+}
+
+int prepareLLSSolPart(){
+	if (std::rand() % 2)
+	if (prepareLLSSolOnePart(0, 0, 0, LLST3))
+		return -1;
+	if (std::rand() % 2)
+	if (prepareLLSSolOnePart(0, 1, T, LLST6))
+		return -1;
+	if (std::rand() % 2)
+	if (prepareLLSSolOnePart(1, 0, T, LLST6))
+		return -1;
+	if (std::rand() % 2)
+	if (prepareLLSSolOnePart(1, 1, T, LLST6))
+		return -1;
+	if (std::rand() % 2)
+	if (prepareLLSSolOnePart(2, 1, T, LLST6))
+		return -1;
 }
 
 void fillLLS(){
-	memset(LLST, 0, sizeof(LLST));
-	for (int k = 0; k < N; k++)
-	for (int l = 0; l < N; l++)
-	for (int r = 0; r < N; r++) {
-		int s = (k + r + 2 * l) % N;
-		int kk = (2 * k) % N;
-		int ll = (2 * l) % N;
-		int rr = (2 * r) % N;
-		int ss = (2 * s) % N;
-		int row = k*N*N + l*N + r;
-		for (int t = 0; t < T; t++) {
-			LLST[t][row] = bcmul[t][k][l][r][s];
-#ifdef GROUP1
-			if (!k ^ !l ^ !r ^ !s)
-				LLST[t][row] -= bcmul[t][kk][ll][rr][ss];
-			else
-#endif
-				LLST[t][row] += bcmul[t][kk][ll][rr][ss];
-			bLLS[row] = fdelta[0][0][k][l][r][s];
-		}
-	}
-
-	fillLLSsub(0, 1, N*N*N);
-	fillLLSsub(1, 0, 2 * N*N*N);
-	fillLLSsub(1, 1, 3 * N*N*N);
-	fillLLSsub(2, 1, 4 * N*N*N);
+	memset(LLST.data(), 0, sizeof(LLST));
+	fillLLSsub(0, 0, 0, 0, 0, LLST, bLLS);
+	fillLLSsub(0, 1, 1 * N*N*N, 3, 6, LLST, bLLS);
+	fillLLSsub(1, 0, 2 * N*N*N, 9, 18, LLST, bLLS);
+	fillLLSsub(1, 1, 3 * N*N*N, 12, 24, LLST, bLLS);
+	fillLLSsub(2, 1, 4 * N*N*N, 21, 15, LLST, bLLS);
 }
 
 void getAijFromLLS(){
@@ -381,22 +424,20 @@ void getAijFromLLS(){
 		(*a[t])[i][j] = bLLS[i*N*N + j*N + t];
 }
 
-double prepareLLSSol(){
-
+int prepareLLSSol(){
 	fillLLS();
 
-	int n4 = NROW;
-	int n2 = N*N*T;
-
-	int info = LAPACKE_zgels(LAPACK_COL_MAJOR, 'N', n4, n2, 1, (lapack_complex_double*)LLST, n4,
-		(lapack_complex_double*)bLLS, n4);
+	int info = LAPACKE_zgels(LAPACK_ROW_MAJOR, 'N', NROW, N*N*T, 1, (lapack_complex_double*)LLST.data(), N*N*T,
+		(lapack_complex_double*)bLLS.data(), 1);
 
 	if (info)
-		return -1;
+		return info;
 
-	for (int i = 0; i < n2; i++)
-	if (abs(bLLS[i]) > MAXINSOLUTION)
-		return -1;
+	for (int i = 0; i < N*N*T; i++)
+	if (abs(bLLS[i]) > MAXINSOLUTION) 
+		bLLS[i] = 0;
+	
+	getAijFromLLS();
 	return 0;
 }
 
@@ -408,29 +449,26 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 	double newResid;
 
 #ifdef GROUP1
-	if (prepareLLSSol() < 0) {
+	if (prepareLLSSolPart()) {
 		residual = WANTED + 1;
 		return 1;
 	}
-	getAijFromLLS();
 	newResid = getResidual();
 	if (newResid < 0) {
 		residual = WANTED + 2;
 		return 2;
 	}
 	delta = residual - newResid;
-	if (delta < -EPSMACH) {
+	if (delta < -MAXDELTA) {
 		residual = WANTED + 3;
 		return 3;
 	}
 	residual = newResid;
 #else
-#ifdef _DEBUG
-	if (prepareLLSSol() < 0) {
+	if (prepareLEsol(numIJ)) {
 		residual = WANTED + 1;
 		return 1;
 	}
-	getAijFromLLS();
 	newResid = getResidual();
 	if (newResid < 0) {
 		residual = WANTED + 2;
@@ -442,27 +480,6 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 		return 3;
 	}
 	residual = newResid;
-
-
-	logger.open(fileName, std::ios::app);
-	logger << "resid  = " << residual << std::endl;
-	printMatrixesABC();
-	logger.close();
-#endif
-	prepareLEsol(numIJ);
-	getAijFromSolution(numIJ);
-
-	newResid = getResidual();
-	if (newResid < 0) {
-		residual = WANTED + 1;
-		return 1;
-	}
-	delta = residual - newResid;
-	if (delta < -EPSMACH) {
-		residual = WANTED + 2;
-		return 2;
-	}
-	residual = newResid;
 #endif
 
 #ifdef _DEBUG
@@ -470,8 +487,19 @@ int nextApprox(double& delta, double& residual, NumerationLSVariables numIJ[3]){
 	logger << "resid  = " << residual << std::endl;
 	printMatrixesABC();
 	logger.close();
+
+	if (prepareLLSSolPart()) {
+		residual = WANTED + 1;
+		return 1;
+	}
+	newResid = getResidual();
+
+	logger.open(fileName, std::ios::app);
+	logger << "resid  = " << newResid << std::endl;
+	printMatrixesABC();
+	logger.close();
 #endif
-	swapABC();
+	swapABC(); 
 	return 0;
 }
 
@@ -523,12 +551,14 @@ void findSolutions(NumerationLSVariables numIJ[3]) {
 }
 
 void morePrecise(NumerationLSVariables numIJ[3]) {
-	double residual, delta = 1;
+	double residual = MAXINSOLUTION, delta = 1;
 
 	readMatrixesABC("input.txt");
 
 	for (int trial = 0; trial < MAXITER; trial++) {
+		std::cout << trial << std::endl;
 		if (nextApprox(delta, residual, numIJ)){
+			std::cout << delta << std::endl;
 			logger.open(fileName, std::ios::app);
 			logger << "resid  = " << residual << " delta  = " << delta << std::endl;
 			logger << "trial  = " << trial << std::endl;
@@ -541,6 +571,8 @@ void morePrecise(NumerationLSVariables numIJ[3]) {
 		nextApprox(delta, residual, numIJ);
 		logger.open(fileName, std::ios::app);
 		logger << "resid  = " << residual << " delta  = " << delta << std::endl;
+
+		logger << "trial  = " << trial << std::endl;
 		printMatrixesABC();
 		logger.close();
 	}
