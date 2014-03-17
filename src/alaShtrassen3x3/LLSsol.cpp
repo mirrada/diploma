@@ -4,88 +4,85 @@
 
 int MAXINSOLUTION = 1000000;
 
-int const NROWpart = 27;
-int const NROW = 5 * NROWpart;
+int const NROWpart6 = 27;
+int const NROWpart3 = 14;
 
-Complex LLST[NROW][N*N*T];
-Complex bLLS[NROW];
+Complex LLST6[NROWpart6 + 6 * NROWpart6][6];
+Complex bLLS6[NROWpart6 + 6 * NROWpart6];
 
-Complex LLST6[NROWpart][6];
-Complex LLST3[NROWpart][3];
-Complex bLLSpart[NROWpart];
+Complex LLST3[NROWpart3 + 3 * NROWpart3][3];
+Complex bLLS3[NROWpart3 + 3 * NROWpart3];
 
 /*int col = i*N*N + j*N;  int colcol = ii*N*N + jj*N;*/
-template<unsigned int ROW, unsigned int COL>
-void fillLLSsub(int i, int j, int rowStart, int col, int colcol, Complex(&arr)[ROW][COL], Complex(&b)[ROW]) {
-	BruteForceKLRSstart{
-		int row = rowStart + k*N*N + l*N + r;
-		for (int t = 0; t < T; t++) {
-			double one = 1;
-			arr[row][col + t] += bcmul[t][k][l][r][s];
+template<unsigned int ROWS, unsigned int COLS>
+void fillLLSsub(int i, int j, int notIJ00shift, Complex(&arr)[ROWS][COLS], Complex(&b)[ROWS]) {
+	int rowInit = 0;
+	for (int k = 0; k < (notIJ00shift ? N : 2); k++) {
+		for (int l = 0; l < (notIJ00shift ? N : k + 2); l++)
+			for (int r = 0; r < (notIJ00shift ? N : N - !(k + l)); r++){
+				int s = (i + k + r + 2 * l + 2 * j) % N;
+				int ii = (2 * i) % N;
+				int jj = (2 * j) % N;
+				int kk = (2 * k) % N;
+				int ll = (2 * l) % N;
+				int rr = (2 * r) % N;
+				int ss = (2 * s) % N;
+				int row = (rowInit)*(COLS + 1);
+				rowInit++;
+				for (int t = 0; t < T; t++) {
+					arr[row][t] += bcmul[t][k][l][r][s];
 #ifdef GROUP2
-			if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
-				one = -1;
+					if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+						arr[row][notIJ00shift + t] -= bcmul[t][kk][ll][rr][ss];
+					else
 #endif
-			arr[row][colcol + t] += one * bcmul[t][kk][ll][rr][ss];
-			b[row] = fdelta[i][j][k][l][r][s];
-		}
-	}BruteForceKLRSend
+						arr[row][notIJ00shift + t] += bcmul[t][kk][ll][rr][ss];
+					b[row] = fdelta[i][j][k][l][r][s];
+
+					arr[row + t + 1][t] = penalty[t][i][j] * bcmul[t][k][l][r][s];
+					arr[row + t + 1 + notIJ00shift][notIJ00shift + t] = penalty[t][ii][jj] * bcmul[t][kk][ll][rr][ss];
+					b[row + t + 1] = 0;
+					b[row + t + 1 + notIJ00shift] = 0;
+				}
+			}
+	}
 }
 
 template<unsigned int ROW, unsigned int COL>
-int prepareLLSSolOnePart(int i, int j, int colcol, Complex(&arr)[ROW][COL]){
+double prepareLLSSolOnePart(int i, int j, int colcol, Complex(&arr)[ROW][COL], Complex(&b)[ROW]){
 	memset(arr, 0, sizeof(arr));
 
-	fillLLSsub(i, j, 0, 0, colcol, arr, bLLSpart);
+	fillLLSsub(i, j, colcol, arr, b);
 	int info = LAPACKE_zgels(LAPACK_ROW_MAJOR, 'N', ROW, COL, 1,
 		(lapack_complex_double*)arr, COL,
-		(lapack_complex_double*)bLLSpart, 1);
+		(lapack_complex_double*)b, 1);
 
 	if (info)
-		return info;
+		return -1;
 	for (unsigned int k = 0; k < COL; k++)
-		if (abs(bLLSpart[k]) > MAXINSOLUTION)
-			bLLSpart[k] = 0;
+		if (abs(b[k]) > MAXINSOLUTION)
+			b[k] = 0;
+
+	double resid = 0;
+	for (unsigned int k = COL + 1; k < ROW; k++)
+		resid += std::norm(b[k]);
+
 	for (int t = 0; t < T; t++) {
-		(*a[t])[i][j] = bLLSpart[t];
-		(*a[t])[2 * i%N][2 * j%N] = bLLSpart[t + colcol];
+		(*a[t])[i][j] = b[t];
+		(*a[t])[2 * i%N][2 * j%N] = b[t + colcol];
 	}
-	return 0;
+
+	return resid;
 }
 
-int prepareLLSSolPart(){
-	return prepareLLSSolOnePart(0, 0, 0, LLST3)||
-	(prepareLLSSolOnePart(0, 1, T, LLST6))||
-	(prepareLLSSolOnePart(1, 0, T, LLST6))||
-	(prepareLLSSolOnePart(1, 1, T, LLST6))||
-	prepareLLSSolOnePart(2, 1, T, LLST6);
-}
-
-void fillLLS(){
-	memset(LLST, 0, sizeof(LLST));
-	fillLLSsub(0, 0, 0, 0, 0, LLST, bLLS);
-	fillLLSsub(0, 1, 1 * N*N*N, 3, 6, LLST, bLLS);
-	fillLLSsub(1, 0, 2 * N*N*N, 9, 18, LLST, bLLS);
-	fillLLSsub(1, 1, 3 * N*N*N, 12, 24, LLST, bLLS);
-	fillLLSsub(2, 1, 4 * N*N*N, 21, 15, LLST, bLLS);
-}
-
-int prepareLLSSol(){
-	fillLLS();
-
-	int info = LAPACKE_zgels(LAPACK_ROW_MAJOR, 'N', NROW, N*N*T, 1, (lapack_complex_double*)LLST, N*N*T,
-		(lapack_complex_double*)bLLS, 1);
-
-	if (info)
-		return info;
-
-	for (int i = 0; i < N*N*T; i++)
-		if (abs(bLLS[i]) > MAXINSOLUTION)
-			bLLS[i] = 0;
-
-	for (int i = 0; i < N; i++)
-		for (int j = 0; j < N; j++)
-			for (int t = 0; t < T; t++)
-				(*a[t])[i][j] = bLLS[i*N*N + j*N + t];
-	return 0;
+double prepareLLSSolPart(){
+	double r00 = prepareLLSSolOnePart(0, 0, 0, LLST3, bLLS3);
+	double r01 = prepareLLSSolOnePart(0, 1, T, LLST6, bLLS6);
+	double r10 = prepareLLSSolOnePart(1, 0, T, LLST6, bLLS6);
+	double r11 = prepareLLSSolOnePart(1, 1, T, LLST6, bLLS6);
+	double r21 = prepareLLSSolOnePart(2, 1, T, LLST6, bLLS6);
+	if (r00 < 0 || r01 < 0 || r10 < 0 || r11 < 0 || r21 < 0)
+		return -1;
+	else
+		return (r00) + (r01)+(r10)+(r11)+(r21);
 }

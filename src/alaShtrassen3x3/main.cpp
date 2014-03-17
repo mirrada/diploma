@@ -8,17 +8,24 @@
 
 #ifndef GROUP2
 #include "LEG1sol.h"
-#else
-#include "LLSsol.h"
 #endif
 
+#include "LLSsol.h"
 #include "common.h"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
 
 
+ComplexArray* a[T];
+ComplexArray* b[T];
+ComplexArray* c[T];
+
+double fdelta[N][N][N][N][N][N] = { 0 };
+Complex bcmul[T][N][N][N][N] = { 0 }; /* t, k, l, r, s pre-calculation b_tkl*c_trs */
+
 double WANTED = 1;
+double WANTEDNULLS = 4;
 double MAXDELTA = 1e-5;
 double MAXRESID = 1e+6;
 
@@ -32,6 +39,8 @@ std::ofstream logger;
 char fileName[50];
 
 
+double penalty[T][N][N];
+
 void setStaticFdelta() {
 	for (int j = 0; j < N; j++)
 		for (int l = 0; l < N; l++)
@@ -39,74 +48,6 @@ void setStaticFdelta() {
 				fdelta[s][j][j][l][l][s] += 1.0 / 3;
 				fdelta[j][j][l][l][s][s] -= 1.0 / 3;
 			}
-}
-
-void prepareBCmul() {
-	for (int t = 0; t < T; t++)
-		for (int k = 0; k < N; k++)
-			for (int l = 0; l < N; l++)
-				for (int r = 0; r < N; r++)
-					for (int s = 0; s < N; s++)
-						bcmul[t][k][l][r][s] = (*b[t])[k][l] * (*c[t])[r][s];
-}
-
-void setRandomInitialBC() {
-	int n = MAXMATRIXINT;
-	if (CONJ) {
-		for (int k = 0; k < N; k++) {
-			for (int i = 0; i < N - 1; i++)
-			for (int j = 0; j < i + 2; j++){
-				(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-					(std::rand() % (2 * n) - n));
-				(*a[k])[2 * i%N][2 * j%N] = std::conj((*a[k])[i][j]);
-				(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-					(std::rand() % (2 * n) - n));
-				(*b[k])[2 * i%N][2 * j%N] = std::conj((*b[k])[i][j]);
-				(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-					(std::rand() % (2 * n) - n));
-				(*c[k])[2 * i%N][2 * j%N] = std::conj((*c[k])[i][j]);
-			}
-			(*a[k])[0][0] = std::rand() % (2 * n) - n;
-			(*b[k])[0][0] = std::rand() % (2 * n) - n;
-			(*c[k])[0][0] = std::rand() % (2 * n) - n;
-		}
-	}
-	else {
-		int n = MAXMATRIXINT;
-		for (int k = 0; k < N; k++)
-		for (int i = 0; i < N; i++)
-		for (int j = 0; j < N; j++){
-			(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-				(std::rand() % (2 * n) - n));
-			(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-				(std::rand() % (2 * n) - n));
-			(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-				(std::rand() % (2 * n) - n));
-		}
-	}
-}
-
-double getResidual() {
-	double resid = 0;
-	for (int i = 0; i < N; i++)
-	for (int j = 0; j < N; j++){
-		BruteForceKLRSstart{
-		Complex sum = 0;
-		for (int t = 0; t < T; t++){
-			sum += (*a[t])[i][j] * bcmul[t][k][l][r][s];
-#ifdef GROUP2
-			if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
-				sum -= (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
-			else
-#endif
-				sum += (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
-		}
-		sum -= fdelta[i][j][k][l][r][s];
-		double temp = std::norm(sum);
-		resid += temp;
-	}BruteForceKLRSend
-	}
-	return resid / 2;
 }
 
 void swapABC() {
@@ -117,35 +58,6 @@ void swapABC() {
 		b[t] = c[t];
 		c[t] = temp;
 	}
-}
-
-double findMaxInMatrices(ComplexArray* m[T]){
-	double max = 0;
-	for (int t = 0; t < T; t++)
-	for (int i = 0; i < N; i++)
-	for (int j = 0; j < N; j++) {
-		if (abs((*m[t])[i][j].imag()) > max)
-			max = abs((*m[t])[i][j].imag());
-		if (abs((*m[t])[i][j].real()) > max)
-			max = abs((*m[t])[i][j].real());
-	}
-	return max;
-}
-
-void mulMatrix(ComplexArray* m[T], double alfa){
-	for (int t = 0; t < T; t++)
-	for (int i = 0; i < N; i++)
-	for (int j = 0; j < N; j++) 
-		(*m[t])[i][j] *= alfa;
-}
-
-void normalizeABC(){
-	double aMax = findMaxInMatrices(a);
-	double bMax = findMaxInMatrices(b);
-	double cMax = findMaxInMatrices(c);
-	mulMatrix(a, std::pow(bMax*cMax / aMax / aMax, (double)1 / 3));
-	mulMatrix(b, std::pow(aMax*cMax / bMax / bMax, (double)1 / 3));
-	mulMatrix(c, std::pow(bMax*aMax / cMax / cMax, (double)1 / 3));
 }
 
 void printMatrix(char* desc, int z, int n, int m, Complex* a) {
@@ -167,8 +79,8 @@ void printMatrixesABC(){
 
 void readMatrix(std::ifstream& input, int n, int m, Complex* a) {
 	for (int i = 0; i < n; i++)
-	for (int j = 0; j < m; j++)
-		input >> a[i*m + j];
+		for (int j = 0; j < m; j++)
+			input >> a[i*m + j];
 }
 
 void readMatrixesABC(char* fileName){
@@ -181,7 +93,159 @@ void readMatrixesABC(char* fileName){
 	}
 }
 
+double findMaxInMatrices(ComplexArray* m[T]){
+	double max = 0;
+	for (int t = 0; t < T; t++)
+		for (int i = 0; i < N; i++)
+			for (int j = 0; j < N; j++) {
+				if (abs((*m[t])[i][j].imag()) > max)
+					max = abs((*m[t])[i][j].imag());
+				if (abs((*m[t])[i][j].real()) > max)
+					max = abs((*m[t])[i][j].real());
+			}
+	return max;
+}
+
+void mulMatrix(ComplexArray* m[T], double alfa){
+	for (int t = 0; t < T; t++)
+		for (int i = 0; i < N; i++)
+			for (int j = 0; j < N; j++)
+				(*m[t])[i][j] *= alfa;
+}
+
+void normalizeABC(){
+	double aMax = findMaxInMatrices(a);
+	double bMax = findMaxInMatrices(b);
+	double cMax = findMaxInMatrices(c);
+	mulMatrix(a, std::pow(bMax*cMax / aMax / aMax, (double)1 / 3));
+	mulMatrix(b, std::pow(aMax*cMax / bMax / bMax, (double)1 / 3));
+	mulMatrix(c, std::pow(bMax*aMax / cMax / cMax, (double)1 / 3));
+}
+
+void prepareBCmul() {
+	for (int t = 0; t < T; t++)
+		for (int k = 0; k < N; k++)
+			for (int l = 0; l < N; l++)
+				for (int r = 0; r < N; r++)
+					for (int s = 0; s < N; s++)
+						bcmul[t][k][l][r][s] = (*b[t])[k][l] * (*c[t])[r][s];
+}
+
+void setRandomInitialBC() {
+	int n = MAXMATRIXINT;
+	if (CONJ) {
+		for (int k = 0; k < N; k++) {
+			for (int i = 0; i < N - 1; i++)
+				for (int j = 0; j < i + 2; j++){
+					(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+						(std::rand() % (2 * n) - n));
+					(*a[k])[2 * i%N][2 * j%N] = std::conj((*a[k])[i][j]);
+					(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+						(std::rand() % (2 * n) - n));
+					(*b[k])[2 * i%N][2 * j%N] = std::conj((*b[k])[i][j]);
+					(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+						(std::rand() % (2 * n) - n));
+					(*c[k])[2 * i%N][2 * j%N] = std::conj((*c[k])[i][j]);
+				}
+			(*a[k])[0][0] = std::rand() % (2 * n) - n;
+			(*b[k])[0][0] = std::rand() % (2 * n) - n;
+			(*c[k])[0][0] = std::rand() % (2 * n) - n;
+		}
+	}
+	else {
+		int n = MAXMATRIXINT;
+		for (int k = 0; k < N; k++)
+			for (int i = 0; i < N; i++)
+				for (int j = 0; j < N; j++){
+					(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+						(std::rand() % (2 * n) - n));
+					(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+						(std::rand() % (2 * n) - n));
+					(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+						(std::rand() % (2 * n) - n));
+				}
+	}
+}
+
+double getResidual(bool withPenalty) {
+	double resid = 0;
+
+	//logger.open(fileName, std::ios::app);
+	//logger << "sums = " << std::endl;
+	//logger.close();
+
+	for (int i = 0; i < N; i++)
+		for (int j = 0; j < N; j++)
+			for (int k = 0; k < N; k++)
+				for (int l = 0; l < N; l++)
+					for (int r = 0; r < N; r++){
+						int ii = (2 * i) % N;
+						int jj = (2 * j) % N;
+						int kk = (2 * k) % N;
+						int ll = (2 * l) % N;
+						int rr = (2 * r) % N;
+						int s = (i + k + r + 2 * l + 2 * j) % N;
+						int ss = (2 * s) % N;
+						Complex sum = 0;
+						for (int t = 0; t < T; t++){
+							sum += (*a[t])[i][j] * bcmul[t][k][l][r][s];
+#ifdef GROUP2
+							if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+								sum -= (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+							else
+#endif
+								sum += (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+							if (withPenalty) {
+								resid += std::norm(penalty[t][i][j] * (*a[t])[i][j] * bcmul[t][k][l][r][s]);
+								resid += std::norm(penalty[t][ii][jj] * (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss]);
+							}
+						}
+						sum -= fdelta[i][j][k][l][r][s];
+						double temp = std::norm(sum);
+
+						/*	logger.open(fileName, std::ios::app);
+							logger << i << j << k << l << r << s << " sum  = " << temp << std::endl;
+							logger.close();*/
+
+
+						resid += temp;
+						if (!i && !j && !k && !l && !r && !s)
+							resid += temp;
+					}
+	return resid / 2;
+}
+
 /*--------------------------------------------------------------------------------*/
+
+void setPenaltyFunction(double resid, double penaltyVal){
+	for (int i = 0; i < N; i++)
+		for (int j = 0; j < N; j++)
+			for (int k = 0; k < N; k++)
+				for (int l = 0; l < N; l++)
+					for (int r = 0; r < N; r++){
+						int ii = (2 * i) % N;
+						int jj = (2 * j) % N;
+						int kk = (2 * k) % N;
+						int ll = (2 * l) % N;
+						int rr = (2 * r) % N;
+						int s = (i + k + r + 2 * l + 2 * j) % N;
+						int ss = (2 * s) % N;
+						for (int t = 0; t < T; t++){
+							auto abc = std::norm((*a[t])[i][j] * bcmul[t][k][l][r][s]);
+							if (abc > resid)
+								penalty[t][i][j] = 0;
+							else
+								penalty[t][i][j] = penaltyVal;
+							abc = std::norm((*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss]);
+							if (abc > resid)
+								penalty[t][ii][jj] = 0;
+							else
+								penalty[t][ii][jj] = penaltyVal;
+						}
+					}
+
+}
+
 
 /*returns 0 if OK. 1,2 if there is a problem with solution and makes resudual = WANTED + 1.*/
 int nextApprox(double& delta, double& residual){
@@ -189,17 +253,18 @@ int nextApprox(double& delta, double& residual){
 	double newResid;
 
 #ifdef GROUP2
-	if (prepareLLSSolPart()) {
+	double theirresid = prepareLLSSolPart();
+	if (theirresid < 0) {
 		residual = WANTED + 1;
 		return 1;
 	}
-	newResid = getResidual();
+	newResid = getResidual(false);
 	if (newResid < 0) {
 		residual = WANTED + 2;
 		return 2;
 	}
 	delta = residual - newResid;
-	if (delta < -MAXDELTA) {
+	if (delta < -0.01) {
 		residual = WANTED + 3;
 		return 3;
 	}
@@ -209,13 +274,17 @@ int nextApprox(double& delta, double& residual){
 		residual = WANTED + 1;
 		return 1;
 	}
-	newResid = getResidual();
+	newResid = getResidual(true);
 	if (newResid < 0) {
 		residual = WANTED + 2;
 		return 2;
 	}
 	delta = residual - newResid;
 	if (delta < -EPSMACH) {
+		double theirresidPart = prepareLLSSolPart();
+		prepareBCmul();
+		newResid = getResidual(true);
+		double newResidF = getResidual(false);
 		residual = WANTED + 3;
 		return 3;
 	}
@@ -223,38 +292,44 @@ int nextApprox(double& delta, double& residual){
 #endif
 
 #ifdef _DEBUG
-	logger.open(fileName, std::ios::app);
-	logger << "resid  = " << residual << std::endl;
-	printMatrixesABC();
-	logger.close();
-
-	if (prepareLLSSolPart()) {
-		residual = WANTED + 1;
-		return 1;
-	}
-	newResid = getResidual();
-
-	logger.open(fileName, std::ios::app);
-	logger << "resid  = " << newResid << std::endl;
-	printMatrixesABC();
-	logger.close();
+	double theirresidPart = prepareLLSSolPart();
+	prepareBCmul();
+	newResid = getResidual(true);
 #endif
 	swapABC();
 	return 0;
 }
 
-void printApprox(double residual) {
-	if (residual <= WANTED) {
+void printApprox(double residual, double &wanted) {
+	if (residual <= wanted) {
 		if (residual > EPSMACH)
-			WANTED = residual + MAXDELTA / 100;
+			wanted = residual + MAXDELTA / 100;
 		normalizeABC();
-		prepareBCmul();
-		double newResidual = getResidual();
 		logger.open(fileName, std::ios::app);
 		logger << "resid  = " << residual << std::endl;
 		printMatrixesABC();
 		logger.close();
 	}
+}
+
+void getSolutionWithNulls(double resid){
+	long cycle = 0;
+	double delta = MAXDELTA + 1;
+	prepareBCmul();
+	setPenaltyFunction(resid, 1);
+	double residual = getResidual(true) + 1;
+
+	while (abs(delta) > MAXDELTA) {
+		if (nextApprox(delta, residual))
+			break;
+		cycle++;
+		prepareBCmul();
+		double myresid = getResidual(false);
+		if (cycle % 5000 == 0)
+			std::cout << "cycle = " << cycle << std::endl;
+	}
+	prepareBCmul();
+	printApprox(getResidual(false), WANTEDNULLS);
 }
 
 void findSolutions() {
@@ -263,6 +338,7 @@ void findSolutions() {
 
 	while (true) {
 		setRandomInitialBC();
+		memset(penalty, 0, sizeof(penalty));
 
 		delta = MAXDELTA + 1;
 		residual = MAXRESID + 1;
@@ -284,7 +360,9 @@ void findSolutions() {
 #endif
 		}
 
-		printApprox(residual);
+		printApprox(residual, WANTED);
+		if (residual < 1)
+			getSolutionWithNulls(residual);
 		attempt++;
 		if (attempt % 100 == 0){
 			std::cout << "attempt = " << attempt << std::endl;
@@ -328,7 +406,7 @@ int main(int argc, char* argv[]) {
 	MPI_Comm_rank(MPI_COMM_WORLD, &k); /* get current process id */
 #endif
 
-	srand(static_cast<unsigned int>(time(NULL)) + k*k * 1000);
+	//srand(static_cast<unsigned int>(time(NULL)) + k*k * 1000);
 
 #ifdef PRECISE
 	sprintf_s(fileName, "loggerPrecise_%dproc.txt", k);
@@ -343,7 +421,7 @@ int main(int argc, char* argv[]) {
 
 	setStaticFdelta();
 
-	for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < T; i++) {
 		a[i] = new ComplexArray[1];
 		b[i] = new ComplexArray[1];
 		c[i] = new ComplexArray[1];

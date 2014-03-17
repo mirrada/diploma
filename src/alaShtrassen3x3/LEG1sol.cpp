@@ -1,6 +1,21 @@
 #include "stdafx.h"
 #include "LEG1sol.h"
 
+
+
+Complex LS0011[T][T]; /*LESystem for i=0,j=0 and at00+at11*/
+Complex b0011[T][SIZEB];  /*right hand vecors  for i=0,j=0 (the first column) and a00+a11 (the second column)*/
+
+Complex LS22[T][T]; /*LESystem for at00-at11*/
+Complex b22[T]; /*right hand vecors at00-at11*/
+
+Complex LSIJ[LSNUM][ROWSBIGLS][ROWSBIGLS];  /*LESystem for i!=j*/
+Complex bIJ[LSNUM][ROWSBIGLS];   /*right hand vecor i!=j*/
+
+IndexesKLRS  bruteForce[N][N*N*N];
+
+NumerationLSVariables numIJ[3];
+
 NumerationLSVariables::NumerationLSVariables(bool(*condition)(int, int)) {
 	int m = 0;
 	for (int i = 0; i < N; i++)
