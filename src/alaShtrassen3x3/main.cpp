@@ -23,6 +23,7 @@ ComplexArray* c[T];
 
 double fdelta[N][N][N][N][N][N] = { 0 };
 Complex bcmul[T][N][N][N][N] = { 0 }; /* t, k, l, r, s pre-calculation b_tkl*c_trs */
+double penalty[T][N][N][N][N][N][N];
 
 double WANTED = 1;
 double WANTEDNULLS = 4;
@@ -39,7 +40,6 @@ std::ofstream logger;
 char fileName[50];
 
 
-double penalty[T][N][N];
 
 void setStaticFdelta() {
 	for (int j = 0; j < N; j++)
@@ -196,26 +196,46 @@ double getResidual(bool withPenalty) {
 #endif
 								sum += (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
 							if (withPenalty) {
-								resid += std::norm(penalty[t][i][j] * (*a[t])[i][j] * bcmul[t][k][l][r][s]);
-								resid += std::norm(penalty[t][ii][jj] * (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss]);
+								double d = 1;
+								if (!i && !j && !k && !l && !r && !s)
+								d = 2;
+								resid += d*std::norm(penalty[t][i][j][k][l][r][s] * (*a[t])[i][j] * bcmul[t][k][l][r][s]);
+								resid += d*std::norm(penalty[t][ii][jj][kk][ll][rr][ss] * (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss]);
 							}
 						}
 						sum -= fdelta[i][j][k][l][r][s];
 						double temp = std::norm(sum);
-
-						/*	logger.open(fileName, std::ios::app);
-							logger << i << j << k << l << r << s << " sum  = " << temp << std::endl;
-							logger.close();*/
-
-
 						resid += temp;
-						if (!i && !j && !k && !l && !r && !s)
+						if (!i && !j && !k && !l && !r && !s) {
 							resid += temp;
+						}
 					}
 	return resid / 2;
 }
 
 /*--------------------------------------------------------------------------------*/
+
+void swapPenalty(){
+	double temp[T][N][N][N][N][N][N];
+	for (int i = 0; i < N; i++)
+		for (int j = 0; j < N; j++)
+			for (int k = 0; k < N; k++)
+				for (int l = 0; l < N; l++)
+					for (int r = 0; r < N; r++){
+						int s = (i + k + r + 2 * l + 2 * j) % N;
+						for (int t = 0; t < T; t++)
+							temp[t][k][l][r][s][i][j] = penalty[t][i][j][k][l][r][s];
+					}
+	for (int i = 0; i < N; i++)
+		for (int j = 0; j < N; j++)
+			for (int k = 0; k < N; k++)
+				for (int l = 0; l < N; l++)
+					for (int r = 0; r < N; r++){
+						int s = (i + k + r + 2 * l + 2 * j) % N;
+						for (int t = 0; t < T; t++)
+							penalty[t][i][j][k][l][r][s] = temp[t][i][j][k][l][r][s];
+					}
+}
 
 void setPenaltyFunction(double resid, double penaltyVal){
 	for (int i = 0; i < N; i++)
@@ -233,14 +253,14 @@ void setPenaltyFunction(double resid, double penaltyVal){
 						for (int t = 0; t < T; t++){
 							auto abc = std::norm((*a[t])[i][j] * bcmul[t][k][l][r][s]);
 							if (abc > resid)
-								penalty[t][i][j] = 0;
+								penalty[t][i][j][k][l][r][s] = 0;
 							else
-								penalty[t][i][j] = penaltyVal;
+								penalty[t][i][j][k][l][r][s] = penaltyVal;
 							abc = std::norm((*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss]);
 							if (abc > resid)
-								penalty[t][ii][jj] = 0;
+								penalty[t][ii][jj][kk][ll][rr][ss] = 0;
 							else
-								penalty[t][ii][jj] = penaltyVal;
+								penalty[t][ii][jj][kk][ll][rr][ss] = penaltyVal;
 						}
 					}
 
@@ -258,7 +278,7 @@ int nextApprox(double& delta, double& residual){
 		residual = WANTED + 1;
 		return 1;
 	}
-	newResid = getResidual(false);
+	newResid = getResidual(true);
 	if (newResid < 0) {
 		residual = WANTED + 2;
 		return 2;
@@ -270,7 +290,8 @@ int nextApprox(double& delta, double& residual){
 	}
 	residual = newResid;
 #else
-	if (prepareLEsol()) {
+	double theirresid = prepareLLSSolPart();
+	if (theirresid < 0) {
 		residual = WANTED + 1;
 		return 1;
 	}
@@ -281,10 +302,6 @@ int nextApprox(double& delta, double& residual){
 	}
 	delta = residual - newResid;
 	if (delta < -EPSMACH) {
-		double theirresidPart = prepareLLSSolPart();
-		prepareBCmul();
-		newResid = getResidual(true);
-		double newResidF = getResidual(false);
 		residual = WANTED + 3;
 		return 3;
 	}
@@ -322,14 +339,16 @@ void getSolutionWithNulls(double resid){
 	while (abs(delta) > MAXDELTA) {
 		if (nextApprox(delta, residual))
 			break;
-		cycle++;
+		swapPenalty();
 		prepareBCmul();
-		double myresid = getResidual(false);
+		double residSwap = getResidual(true);
+		cycle++;
 		if (cycle % 5000 == 0)
 			std::cout << "cycle = " << cycle << std::endl;
 	}
 	prepareBCmul();
-	printApprox(getResidual(false), WANTEDNULLS);
+	double residSystem = getResidual(false);
+	printApprox(residSystem, WANTEDNULLS);
 }
 
 void findSolutions() {

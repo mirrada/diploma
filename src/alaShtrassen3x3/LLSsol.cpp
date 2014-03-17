@@ -10,8 +10,8 @@ int const NROWpart3 = 14;
 Complex LLST6[NROWpart6 + 6 * NROWpart6][6];
 Complex bLLS6[NROWpart6 + 6 * NROWpart6];
 
-Complex LLST3[NROWpart3 + 3 * NROWpart3][3];
-Complex bLLS3[NROWpart3 + 3 * NROWpart3];
+Complex LLST3[NROWpart3 + 6 * NROWpart3][3];
+Complex bLLS3[NROWpart3 + 6 * NROWpart3];
 
 /*int col = i*N*N + j*N;  int colcol = ii*N*N + jj*N;*/
 template<unsigned int ROWS, unsigned int COLS>
@@ -27,7 +27,7 @@ void fillLLSsub(int i, int j, int notIJ00shift, Complex(&arr)[ROWS][COLS], Compl
 				int ll = (2 * l) % N;
 				int rr = (2 * r) % N;
 				int ss = (2 * s) % N;
-				int row = (rowInit)*(COLS + 1);
+				int row = (rowInit)*(6 + 1);
 				rowInit++;
 				for (int t = 0; t < T; t++) {
 					arr[row][t] += bcmul[t][k][l][r][s];
@@ -39,10 +39,10 @@ void fillLLSsub(int i, int j, int notIJ00shift, Complex(&arr)[ROWS][COLS], Compl
 						arr[row][notIJ00shift + t] += bcmul[t][kk][ll][rr][ss];
 					b[row] = fdelta[i][j][k][l][r][s];
 
-					arr[row + t + 1][t] = penalty[t][i][j] * bcmul[t][k][l][r][s];
-					arr[row + t + 1 + notIJ00shift][notIJ00shift + t] = penalty[t][ii][jj] * bcmul[t][kk][ll][rr][ss];
+					arr[row + t + 1][t] = penalty[t][i][j][k][l][r][s] * bcmul[t][k][l][r][s];
+					arr[row + t + 1 + T][notIJ00shift + t] = penalty[t][ii][jj][kk][ll][rr][ss] * bcmul[t][kk][ll][rr][ss];
 					b[row + t + 1] = 0;
-					b[row + t + 1 + notIJ00shift] = 0;
+					b[row + t + 1 + T] = 0;
 				}
 			}
 	}
@@ -84,5 +84,5 @@ double prepareLLSSolPart(){
 	if (r00 < 0 || r01 < 0 || r10 < 0 || r11 < 0 || r21 < 0)
 		return -1;
 	else
-		return (r00) + (r01)+(r10)+(r11)+(r21);
+		return (r00)+(r01)+(r10)+(r11)+(r21);
 }
