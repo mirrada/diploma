@@ -26,7 +26,7 @@ Complex bcmul[T][N][N][N][N] = { 0 };		/* t, k, l, r, s pre-calculation b_tkl*c_
 double fdelta[N][N][N][N][N][N] = { 0 };
 double penalty[T][N][N][N][N][N][N] = { 0 };
 
-double WANTED[7] = { 1 };
+double WANTED[7] = { 1, 1, 1, 1, 1, 1, 1 };
 
 double const MAXDELTA = 1e-5;
 double const MAXRESID = 1e+6;
@@ -258,16 +258,17 @@ double thirdMax(int t, int i, int j, int k, int l, int r, int s, double(&maxArr)
 bool setPenalty(int t, int i, int j, int k, int l, int r, int s, double resid, double penaltyVal, double(&maxArr)[3]){
 	double mul = std::norm((*a[t])[i][j] * bcmul[t][k][l][r][s]);
 	double p = pow(maxArr[2] / mul, 2);
-	if (mul < PENALTYNULL) {
-		penalty[t][i][j][k][l][r][s] = PENALTYINF;
+	if (mul < PENALTYNULL){ 
+		penalty[t][i][j][k][l][r][s] = PENALTYINF*penaltyVal; // todo: + min(*100) of aij bkl crs -> 0
 		return true;
 	}
-	else
+	else {
 		if (mul > resid)
 			penalty[t][i][j][k][l][r][s] = 0;
 		else
 			penalty[t][i][j][k][l][r][s] = std::min(p * penaltyVal, penaltyVal * 10);
-	return false;
+		return false;
+	}
 };
 
 int setPenaltyFunction(double resid, double penaltyVal){
@@ -337,8 +338,7 @@ void getSolutionWithNulls(double resid){
 	double delta = MAXDELTA + 1;
 	double residual;
 	int countNot0 = 6;
-	while (residSystem < 0.4 && residSystem > 0.1 && penaltyVal < 10000 && countNot0 > 3) {
-		std::cout << "penalty = " << penaltyVal << std::endl;
+	while (residSystem < 0.4 && residSystem > 0.1 && penaltyVal < 1000000 && countNot0 > 3) {
 		long cycle = 0;
 		delta = MAXDELTA + 1;
 		residual = getResidual(true) + 1;
@@ -347,16 +347,33 @@ void getSolutionWithNulls(double resid){
 				break;
 			swapPenalty();
 			cycle++;
-			if (cycle % 5000 == 0)
-				std::cout << "cycle = " << cycle << " penalty = " << penalty << std::endl;
+			if (cycle % 500 == 0)
+				std::cout << "cycle = " << cycle << " penalty = " << penaltyVal << std::endl;
 		}
 		prepareBCmul();
 		residSystem = getResidual(false);
 		countNot0 = setPenaltyFunction(residSystem, penaltyVal);
+		printApprox(fileNames[countNot0], residSystem, WANTED[countNot0]);
 		penaltyVal *= 1.01;
 	}
-	int nullsCount = setPenaltyFunction(residSystem, penaltyVal);
-	printApprox(fileNames[nullsCount], residSystem, WANTED[nullsCount]);
+
+	penaltyVal = 0;
+	countNot0 = setPenaltyFunction(residSystem, penaltyVal);
+	long cycle = 0;
+	delta = MAXDELTA + 1;
+	residual = getResidual(true) + 1;
+	while (abs(delta) > MAXDELTA) {
+		if (nextApprox(delta, residual))
+			break;
+		swapPenalty();
+		cycle++;
+		if (cycle % 500 == 0)
+			std::cout << "cycle = " << cycle << " penalty = " << penaltyVal << std::endl;
+	}
+	prepareBCmul();
+	residSystem = getResidual(false);
+	countNot0 = setPenaltyFunction(residSystem, penaltyVal);
+	printApprox(fileNames[countNot0], residSystem, WANTED[countNot0]);
 }
 
 void findSolutions() {
