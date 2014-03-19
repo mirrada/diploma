@@ -2,13 +2,6 @@
 #include "common.h"
 #include <mkl.h>
 
-extern ComplexArray* a[T];
-extern ComplexArray* b[T];
-extern ComplexArray* c[T];
-
-extern double fdelta[N][N][N][N][N][N];
-extern Complex bcmul[T][N][N][N][N]; /* t, k, l, r, s pre-calculation b_tkl*c_trs */
-
 int const SIZEB = 2; /*columns in right hand matrix b. first for system a_t00, second for a_t11+a_t22*/
 int const LSNUM = 3; /*number of systems for i!=j*/
 int const ROWSBIGLS = 6; /*size of systems for i!=j*/
