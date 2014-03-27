@@ -170,7 +170,7 @@ void setRandomInitialBC() {
 }
 
 void swapPenalty(){
-	double temp[T][N][N][N][N][N][N];
+	double temp[T][N][N][N][N][N][N] = { 0 };
 	for (int i = 0; i < N; i++)
 		for (int j = 0; j < N; j++)
 			for (int k = 0; k < N; k++)
@@ -186,8 +186,6 @@ void swapPenalty(){
 double getResidual(bool withPenalty) {
 	double resid = 0;
 
-	//logger.open(fileNames[0], std::ios::app);
-
 	for (int i = 0; i < 2; i++)
 		for (int j = 0; j < std::min(N, i + 2); j++)
 			for (int k = 0; k < std::min(N, i + j + 2); k++)
@@ -201,13 +199,8 @@ double getResidual(bool withPenalty) {
 						int s = (i + k + r + 2 * l + 2 * j) % N;
 						int ss = (2 * s) % N;
 						Complex sum = 0;
-
-						//logger << i << j << k << l << r << s << std::endl;
-
 						for (int t = 0; t < T; t++){
 							sum += (*a[t])[i][j] * bcmul[t][k][l][r][s];
-
-							//logger << (*a[t])[i][j] * bcmul[t][k][l][r][s] << " + ";
 
 #ifdef GROUP2
 							if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
@@ -215,28 +208,50 @@ double getResidual(bool withPenalty) {
 							else
 #endif
 								sum += (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
-
-							//logger << (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss] << " + ";
-
 							if (withPenalty) {
-								double d = 1;
-								resid += std::norm(penalty[t][i][j][k][l][r][s] * (*a[t])[i][j] * bcmul[t][k][l][r][s]);
-								resid += std::norm(penalty[t][ii][jj][kk][ll][rr][ss] * (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss]);
+								resid += std::norm((*a[t])[i][j] * bcmul[t][k][l][r][s] * penalty[t][i][j][k][l][r][s]);
+								if (i + j + k + l + r + s != 0) {
+									resid += std::norm((*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss] * penalty[t][ii][jj][kk][ll][rr][ss]);
+								}
 							}
 						}
-
-						//logger << '=' << fdelta[i][j][k][l][r][s] << std::endl;
-
 						sum -= fdelta[i][j][k][l][r][s];
 						double temp = std::norm(sum);
-						if (fdelta[i][j][k][l][r][s] > EPSMACH || fdelta[i][j][k][l][r][s] < -EPSMACH) {
+						/*if (fdelta[i][j][k][l][r][s] > EPSMACH || fdelta[i][j][k][l][r][s] < -EPSMACH) {
 							resid += temp;
-						}
+							}*/
 						resid += temp;
 					}
-	//logger.close();
-
 	return resid;
+}
+
+void printForTrefilov() {
+	logger.open(fileNames[0], std::ios::app);
+	for (int i = 0; i < 2; i++)
+		for (int j = 0; j < std::min(N, i + 2); j++)
+			for (int k = 0; k < std::min(N, i + j + 2); k++)
+				for (int l = 0; l < std::min(N, i + j + k + 2); l++)
+					for (int r = 0; r < std::min(N, i + j + k + l + 2); r++){
+						int ii = (2 * i) % N;
+						int jj = (2 * j) % N;
+						int kk = (2 * k) % N;
+						int ll = (2 * l) % N;
+						int rr = (2 * r) % N;
+						int s = (i + k + r + 2 * l + 2 * j) % N;
+						int ss = (2 * s) % N;
+						logger << i << j << k << l << r << s << std::endl;
+						for (int t = 0; t < T; t++){
+							logger << " + " << (*a[t])[i][j] * bcmul[t][k][l][r][s];
+#ifdef GROUP2
+							if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+								logger << "-" << (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+							else
+#endif
+								logger << "+" << (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+						}
+						logger << '=' << fdelta[i][j][k][l][r][s] << std::endl;
+					}
+	logger.close();
 }
 
 Complex getTrace(ComplexArray& a) {
@@ -255,6 +270,7 @@ void printApprox(char fileName[50], double residual, double &wanted) {
 			wanted = residual + MAXDELTA / 100;
 			WANTED[2] = 1;
 			WANTED[3] = 1;
+			WANTED[6] = 0.28;
 		}
 		normalizeABC();
 		logger.open(fileName, std::ios::app);
@@ -297,6 +313,7 @@ bool setPenalty(int t, int i, int j, int k, int l, int r, int s, double resid, d
 			penalty[t][i][j][k][l][r][s] = PENALTYINF*penaltyVal;
 			return true;
 		}
+		penalty[t][i][j][k][l][r][s] = 10 * penaltyVal;
 	}
 	else {
 		if (mul > resid)
@@ -323,10 +340,9 @@ int setPenaltyFunction(double resid, double penaltyVal){
 						int s = (i + k + r + 2 * l + 2 * j) % N;
 						int ss = (2 * s) % N;
 						double maxArr[3] = { 0 };
-						double abc[6];
 						for (int t = 0; t < T; t++){
-							abc[t] = thirdMax(t, i, j, k, l, r, s, maxArr);
-							abc[t + T] = thirdMax(t, ii, jj, kk, ll, rr, ss, maxArr);
+							thirdMax(t, i, j, k, l, r, s, maxArr);
+							thirdMax(t, ii, jj, kk, ll, rr, ss, maxArr);
 						}
 						int not0count = 6;
 						for (int t = 0; t < T; t++){
@@ -349,6 +365,7 @@ int nextApprox(double& delta, double& residual){
 
 	double theirResid = prepareLLSSolPart();
 	double newResid = getResidual(true);
+	double diff = theirResid - newResid;
 
 	if (newResid < 0) {
 		residual = MAXRESID + 1;
@@ -379,7 +396,7 @@ void getSolutionWithNulls(double resid){
 	double delta = MAXDELTA + 1;
 	double residual;
 	int countNot0 = 6;
-	while (residSystem < 0.4 && residSystem > 0.1 && penaltyVal < 1000000 && countNot0 > 3 && countNot0 < 7) {
+	while (residSystem < 0.4 && residSystem > 0.1 && penaltyVal < 1000000 && countNot0 > 2 && countNot0 < 7) {
 		long cycle = 0;
 		delta = MAXDELTA + 1;
 		residual = MAXRESID;
@@ -397,24 +414,6 @@ void getSolutionWithNulls(double resid){
 		printApprox(fileNames[countNot0], residSystem, WANTED[countNot0]);
 		penaltyVal *= 1.01;
 	}
-
-	penaltyVal = 0;
-	countNot0 = setPenaltyFunction(residSystem, penaltyVal);
-	long cycle = 0;
-	delta = MAXDELTA + 1;
-	residual = getResidual(true) + 1;
-	while (abs(delta) > MAXDELTA) {
-		if (nextApprox(delta, residual))
-			break;
-		swapPenalty();
-		cycle++;
-		if (cycle % 500 == 0)
-			std::cout << "cycle = " << cycle << " penalty = " << penaltyVal << std::endl;
-	}
-	prepareBCmul();
-	residSystem = getResidual(false);
-	countNot0 = setPenaltyFunction(residSystem, penaltyVal);
-	printApprox(fileNames[countNot0], residSystem, WANTED[countNot0]);
 }
 
 void findSolutions() {
@@ -463,8 +462,8 @@ void morePrecise() {
 	readMatrixesABC("input.txt");
 	normalizeABC();
 
-	//	prepareBCmul();
-	//	getResidual(false);
+	prepareBCmul();
+	printForTrefilov();
 
 	for (int trial = 0; trial < MAXITER; trial++) {
 		std::cout << trial << std::endl;

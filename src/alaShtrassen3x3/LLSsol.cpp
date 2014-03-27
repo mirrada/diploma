@@ -6,8 +6,8 @@ int MAXINSOLUTION = 1000000;
 
 int const NROWpart6 = 27;
 int const NROWpart3 = 14;
-int const addition13_3 = 5;
-int const addition13_6 = 10;
+int const addition13_3 = 0;
+int const addition13_6 = 0;
 
 
 Complex LLST6[NROWpart6 + 6 * NROWpart6 + addition13_6][6];
@@ -48,15 +48,17 @@ void fillLLSsub(int i, int j, int notIJ00shift, Complex(&arr)[ROWS][COLS], Compl
 					b[row] = fdelta[i][j][k][l][r][s];
 
 					arr[row + t + 1][t] = penalty[t][i][j][k][l][r][s] * bcmul[t][k][l][r][s];
-					arr[row + t + 1 + T][notIJ00shift + t] = penalty[t][ii][jj][kk][ll][rr][ss] * bcmul[t][kk][ll][rr][ss];
 					b[row + t + 1] = 0;
-					b[row + t + 1 + T] = 0;
-				}
+					if (i + j + k + l + r + s != 0) {
+						arr[row + t + 1 + T][notIJ00shift + t] = penalty[t][ii][jj][kk][ll][rr][ss] * bcmul[t][kk][ll][rr][ss];
+						b[row + t + 1 + T] = 0;
+					}
+				}/*
 				if (fdelta[i][j][k][l][r][s] > EPSMACH || fdelta[i][j][k][l][r][s] < -EPSMACH) {
 					addition13++;
 					memcpy(arr[rows - addition13], arr[row], sizeof(arr[row]));
 					b[rows - addition13] = b[row];
-				}
+				}*/
 			}
 	}
 }
@@ -79,7 +81,7 @@ double prepareLLSSolOnePart(int i, int j, int shift, Complex(&arr)[ROWS][COLS], 
 			b[k] = 0;
 
 	double resid = 0;
-	for (unsigned int k = COLS + 1; k < ROWS; k++)
+	for (unsigned int k = COLS; k < ROWS; k++)
 		resid += std::norm(b[k]);
 
 	for (int t = 0; t < T; t++) {
