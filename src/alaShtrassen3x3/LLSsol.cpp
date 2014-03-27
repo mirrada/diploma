@@ -6,17 +6,25 @@ int MAXINSOLUTION = 1000000;
 
 int const NROWpart6 = 27;
 int const NROWpart3 = 14;
+int const addition13_3 = 5;
+int const addition13_6 = 10;
 
-Complex LLST6[NROWpart6 + 6 * NROWpart6][6];
-Complex bLLS6[NROWpart6 + 6 * NROWpart6];
 
-Complex LLST3[NROWpart3 + 6 * NROWpart3][3];
-Complex bLLS3[NROWpart3 + 6 * NROWpart3];
+Complex LLST6[NROWpart6 + 6 * NROWpart6 + addition13_6][6];
+Complex bLLS6[NROWpart6 + 6 * NROWpart6 + addition13_6];
 
-/*int col = i*N*N + j*N;  int colcol = ii*N*N + jj*N;*/
+Complex LLST3[NROWpart3 + 6 * NROWpart3 + addition13_3][3];
+Complex bLLS3[NROWpart3 + 6 * NROWpart3 + addition13_3];
+
+
+
+/*int col = i*N*N + j*N;  int shift = ii*N*N + jj*N;*/
 template<unsigned int ROWS, unsigned int COLS>
 void fillLLSsub(int i, int j, int notIJ00shift, Complex(&arr)[ROWS][COLS], Complex(&b)[ROWS]) {
 	int rowInit = 0;
+	int rows = ROWS;
+	int cols = COLS;
+	int addition13 = 0;
 	for (int k = 0; k < (notIJ00shift ? N : 2); k++) {
 		for (int l = 0; l < (notIJ00shift ? N : k + 2); l++)
 			for (int r = 0; r < (notIJ00shift ? N : N - !(k + l)); r++){
@@ -44,32 +52,39 @@ void fillLLSsub(int i, int j, int notIJ00shift, Complex(&arr)[ROWS][COLS], Compl
 					b[row + t + 1] = 0;
 					b[row + t + 1 + T] = 0;
 				}
+				if (fdelta[i][j][k][l][r][s] > EPSMACH || fdelta[i][j][k][l][r][s] < -EPSMACH) {
+					addition13++;
+					memcpy(arr[rows - addition13], arr[row], sizeof(arr[row]));
+					b[rows - addition13] = b[row];
+				}
 			}
 	}
 }
 
-template<unsigned int ROW, unsigned int COL>
-double prepareLLSSolOnePart(int i, int j, int colcol, Complex(&arr)[ROW][COL], Complex(&b)[ROW]){
-	memset(arr, 0, sizeof(arr));
+template<unsigned int ROWS, unsigned int COLS>
+double prepareLLSSolOnePart(int i, int j, int shift, Complex(&arr)[ROWS][COLS], Complex(&b)[ROWS]){
+	memset(arr, 0, sizeof(arr));	
+	memset(b, 0, sizeof(b));
 
-	fillLLSsub(i, j, colcol, arr, b);
-	int info = LAPACKE_zgels(LAPACK_ROW_MAJOR, 'N', ROW, COL, 1,
-		(lapack_complex_double*)arr, COL,
+	fillLLSsub(i, j, shift, arr, b);
+
+	int info = LAPACKE_zgels(LAPACK_ROW_MAJOR, 'N', ROWS, COLS, 1,
+		(lapack_complex_double*)arr, COLS,
 		(lapack_complex_double*)b, 1);
 
 	if (info)
 		return -1;
-	for (unsigned int k = 0; k < COL; k++)
+	for (unsigned int k = 0; k < COLS; k++)
 		if (abs(b[k]) > MAXINSOLUTION)
 			b[k] = 0;
 
 	double resid = 0;
-	for (unsigned int k = COL + 1; k < ROW; k++)
+	for (unsigned int k = COLS + 1; k < ROWS; k++)
 		resid += std::norm(b[k]);
 
 	for (int t = 0; t < T; t++) {
 		(*a[t])[i][j] = b[t];
-		(*a[t])[2 * i%N][2 * j%N] = b[t + colcol];
+		(*a[t])[2 * i%N][2 * j%N] = b[t + shift];
 	}
 
 	return resid;
