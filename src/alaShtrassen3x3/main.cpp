@@ -1,7 +1,9 @@
 #include "stdafx.h"
 
 #ifndef _DEBUG
+#ifndef PRECISE
 #include <mpi.h>
+#endif
 #endif
 
 #include "LLSsol.h"
