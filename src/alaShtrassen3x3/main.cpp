@@ -2,16 +2,11 @@
 
 #ifndef _DEBUG
 #include <mpi.h>
-#else
-#include <omp.h>
-#endif
-
-#ifndef GROUP2
-#include "LEG1sol.h"
 #endif
 
 #include "LLSsol.h"
 #include "common.h"
+#include "fmSolver.h"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -26,13 +21,14 @@ Complex bcmul[T][N][N][N][N] = { 0 };		/* t, k, l, r, s pre-calculation b_tkl*c_
 double fdelta[N][N][N][N][N][N] = { 0 };
 double penalty[T][N][N][N][N][N][N] = { 0 };
 
-double WANTED[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+double WANTED[8] = { 100, 1, 1, 1, 1, 1, 1, 1 };
 
 double const MAXDELTA = 1e-5;
 double const MAXRESID = 1e+6;
 double const PENALTYINF = 1e+20;
 double const PENALTYNULL = 1e-20;
 
+bool const COMP = true;
 int const CONJ = 0;
 int const MAXITER = 100000;
 int const MAXMATRIXINT = 10;
@@ -41,7 +37,20 @@ std::ofstream logger;
 
 FileNameString fileNames[8];
 
+IndexesIJKLRS bruteForce[BRUTEFORCESIZE];
 
+void setStaticBruteForce(){
+	int m = 0;
+	for (int i = 0; i < 2; i++)
+		for (int j = 0; j < min(N, i + 2); j++)
+			for (int k = 0; k < min(N, i + j + 2); k++)
+				for (int l = 0; l < min(N, i + j + k + 2); l++)
+					for (int r = 0; r < min(N, i + j + k + l + 2); r++){
+						int s = (i + k + r + 2 * l + 2 * j) % N;
+						bruteForce[m] = IndexesIJKLRS(i, j, k, l, r, s);
+						m++;
+					}
+}
 
 void setStaticFdelta() {
 	for (int j = 0; j < N; j++)
@@ -85,9 +94,7 @@ void readMatrix(std::ifstream& input, int n, int m, Complex* a) {
 			input >> a[i*m + j];
 }
 
-void readMatrixesABC(char* fileName){
-	std::ifstream inputFile;
-	inputFile.open(fileName, std::ifstream::in);
+void readMatrixesABC(std::ifstream& inputFile){
 	for (int t = 0; t < T; t++) {
 		readMatrix(inputFile, N, N, (Complex*)a[t]);
 		readMatrix(inputFile, N, N, (Complex*)b[t]);
@@ -135,38 +142,16 @@ void prepareBCmul() {
 
 void setRandomInitialBC() {
 	int n = MAXMATRIXINT;
-	if (CONJ) {
-		for (int k = 0; k < N; k++) {
-			for (int i = 0; i < N - 1; i++)
-				for (int j = 0; j < i + 2; j++){
-					(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-						(std::rand() % (2 * n) - n));
-					(*a[k])[2 * i%N][2 * j%N] = std::conj((*a[k])[i][j]);
-					(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-						(std::rand() % (2 * n) - n));
-					(*b[k])[2 * i%N][2 * j%N] = std::conj((*b[k])[i][j]);
-					(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-						(std::rand() % (2 * n) - n));
-					(*c[k])[2 * i%N][2 * j%N] = std::conj((*c[k])[i][j]);
-				}
-			(*a[k])[0][0] = std::rand() % (2 * n) - n;
-			(*b[k])[0][0] = std::rand() % (2 * n) - n;
-			(*c[k])[0][0] = std::rand() % (2 * n) - n;
-		}
-	}
-	else {
-		int n = MAXMATRIXINT;
-		for (int k = 0; k < N; k++)
-			for (int i = 0; i < N; i++)
-				for (int j = 0; j < N; j++){
-					(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-						(std::rand() % (2 * n) - n));
-					(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-						(std::rand() % (2 * n) - n));
-					(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
-						(std::rand() % (2 * n) - n));
-				}
-	}
+	for (int k = 0; k < N; k++)
+		for (int i = 0; i < N; i++)
+			for (int j = 0; j < N; j++){
+				(*a[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+					COMP ? (std::rand() % (2 * n) - n) : 0);
+				(*b[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+					COMP ? (std::rand() % (2 * n) - n) : 0);
+				(*c[k])[i][j] = Complex(std::rand() % (2 * n) - n,
+					COMP ? (std::rand() % (2 * n) - n) : 0);
+			}
 }
 
 void swapPenalty(){
@@ -187,10 +172,10 @@ double getResidual(bool withPenalty) {
 	double resid = 0;
 
 	for (int i = 0; i < 2; i++)
-		for (int j = 0; j < std::min(N, i + 2); j++)
-			for (int k = 0; k < std::min(N, i + j + 2); k++)
-				for (int l = 0; l < std::min(N, i + j + k + 2); l++)
-					for (int r = 0; r < std::min(N, i + j + k + l + 2); r++){
+		for (int j = 0; j < min(N, i + 2); j++)
+			for (int k = 0; k < min(N, i + j + 2); k++)
+				for (int l = 0; l < min(N, i + j + k + 2); l++)
+					for (int r = 0; r < min(N, i + j + k + l + 2); r++){
 						int ii = (2 * i) % N;
 						int jj = (2 * j) % N;
 						int kk = (2 * k) % N;
@@ -228,10 +213,10 @@ double getResidual(bool withPenalty) {
 void printForTrefilov() {
 	logger.open(fileNames[0], std::ios::app);
 	for (int i = 0; i < 2; i++)
-		for (int j = 0; j < std::min(N, i + 2); j++)
-			for (int k = 0; k < std::min(N, i + j + 2); k++)
-				for (int l = 0; l < std::min(N, i + j + k + 2); l++)
-					for (int r = 0; r < std::min(N, i + j + k + l + 2); r++){
+		for (int j = 0; j < min(N, i + 2); j++)
+			for (int k = 0; k < min(N, i + j + 2); k++)
+				for (int l = 0; l < min(N, i + j + k + 2); l++)
+					for (int r = 0; r < min(N, i + j + k + l + 2); r++){
 						int ii = (2 * i) % N;
 						int jj = (2 * j) % N;
 						int kk = (2 * k) % N;
@@ -239,7 +224,40 @@ void printForTrefilov() {
 						int rr = (2 * r) % N;
 						int s = (i + k + r + 2 * l + 2 * j) % N;
 						int ss = (2 * s) % N;
-						logger << i << j << k << l << r << s << std::endl;
+						for (int t = 0; t < T; t++){
+							if (abs((*a[t])[i][j]) > EPSMACH || abs((*a[t])[i][j]) < -EPSMACH)
+								logger << " + a" << t << i << j;
+							else 
+								logger << " + 0";
+							if (abs((*b[t])[k][l]) > EPSMACH || abs((*b[t])[k][l]) < -EPSMACH)
+								logger << "*b" << t << k << l;
+							else
+								logger << "*0";
+							if (abs((*c[t])[r][s]) > EPSMACH || abs((*c[t])[r][s]) < -EPSMACH)
+								logger << "*c" << t << r << s;
+							else
+								logger << "*0";
+#ifdef GROUP2
+							if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+								logger << " - ";
+							else
+#endif
+								logger << " + ";
+							if (norm((*a[t])[ii][jj]) > EPSMACH || norm((*a[t])[ii][jj]) < -EPSMACH)
+								logger << "a" << t << ii << jj;
+							else
+								logger << "0";
+							if (norm((*b[t])[kk][ll]) > EPSMACH || norm((*b[t])[kk][ll]) < -EPSMACH)
+								logger << "*b" << t << kk << ll;
+							else
+								logger << "*0";
+							if (norm((*c[t])[rr][ss]) > EPSMACH || norm((*c[t])[rr][ss]) < -EPSMACH)
+								logger << "*c" << t << rr << ss;
+							else
+								logger << "*0";
+						}
+						logger << " = " << fdelta[i][j][k][l][r][s] << std::endl;
+
 						for (int t = 0; t < T; t++){
 							logger << " + " << (*a[t])[i][j] * bcmul[t][k][l][r][s];
 #ifdef GROUP2
@@ -247,9 +265,38 @@ void printForTrefilov() {
 								logger << "-" << (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
 							else
 #endif
-								logger << "+" << (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+								logger << " + " << (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
 						}
-						logger << '=' << fdelta[i][j][k][l][r][s] << std::endl;
+						logger << " = " << fdelta[i][j][k][l][r][s] << std::endl;
+					}
+	logger << std::endl << std::endl;
+	logger.close();
+}
+
+void printForTrefilovVars() {
+	logger.open(fileNames[0], std::ios::app);
+	for (int i = 0; i < 2; i++)
+		for (int j = 0; j < min(N, i + 2); j++)
+			for (int k = 0; k < min(N, i + j + 2); k++)
+				for (int l = 0; l < min(N, i + j + k + 2); l++)
+					for (int r = 0; r < min(N, i + j + k + l + 2); r++){
+						int ii = (2 * i) % N;
+						int jj = (2 * j) % N;
+						int kk = (2 * k) % N;
+						int ll = (2 * l) % N;
+						int rr = (2 * r) % N;
+						int s = (i + k + r + 2 * l + 2 * j) % N;
+						int ss = (2 * s) % N;
+						for (int t = 0; t < T; t++){
+							logger << " + a" << t << i << j << "*b" << t << k << l << "*c" << t << r << s;
+#ifdef GROUP2
+							if (!i ^ !j ^ !k ^ !l ^ !r ^ !s)
+								logger << "-" << (*a[t])[ii][jj] * bcmul[t][kk][ll][rr][ss];
+							else
+#endif
+								logger << " + a" << t << ii << jj << "*b" << t << kk << ll << "*c" << t << rr << ss;
+						}
+						logger << " = " << fdelta[i][j][k][l][r][s] << std::endl;
 					}
 	logger.close();
 }
@@ -270,13 +317,15 @@ void printApprox(char fileName[50], double residual, double &wanted) {
 			wanted = residual + MAXDELTA / 100;
 			WANTED[2] = 1;
 			WANTED[3] = 1;
-			WANTED[6] = 0.28;
+			WANTED[7] += 0.005;
+			WANTED[6] += 0.005;
 		}
 		normalizeABC();
 		logger.open(fileName, std::ios::app);
 		logger << "resid  = " << residual << std::endl;
 		logger << "traces = " << getMulTraces(0) << "; " << getMulTraces(1) << "; " << getMulTraces(2) << std::endl;
 		printMatrixesABC();
+		logger << std::endl << "@@@" << std::endl;
 		logger.close();
 	}
 }
@@ -291,9 +340,9 @@ double thirdMax(int t, int i, int j, int k, int l, int r, int s, double(&maxArr)
 	return mul;
 };
 
-bool setPenalty(int t, int i, int j, int k, int l, int r, int s, double resid, double penaltyVal, double(&maxArr)[3]){
+bool setPenalty(int t, int i, int j, int k, int l, int r, int s, double resid, double penaltyVal, double  maxArr){
 	double mul = std::norm((*a[t])[i][j] * bcmul[t][k][l][r][s]);
-	double p = pow(maxArr[2] / mul, 2);
+	double p = pow(maxArr / mul, 2);
 	if (mul < PENALTYNULL) {
 		double na = std::norm((*a[t])[i][j]);
 		double nb = std::norm((*b[t])[k][l]);
@@ -319,13 +368,13 @@ bool setPenalty(int t, int i, int j, int k, int l, int r, int s, double resid, d
 		if (mul > resid)
 			penalty[t][i][j][k][l][r][s] = 0;
 		else
-			penalty[t][i][j][k][l][r][s] = std::min(p * penaltyVal, penaltyVal * 10);
+			penalty[t][i][j][k][l][r][s] = min(p * penaltyVal, penaltyVal * 10);
 	}
 	return false;
 };
 
 int setPenaltyFunction(double resid, double penaltyVal){
-	int maxNotNull;
+	int maxNotNull = 0;
 	bool not000000 = true;
 	for (int i = 0; i < N; i++)
 		for (int j = 0; j < N; j++)
@@ -346,11 +395,11 @@ int setPenaltyFunction(double resid, double penaltyVal){
 						}
 						int not0count = 6;
 						for (int t = 0; t < T; t++){
-							not0count -= setPenalty(t, i, j, k, l, r, s, resid, penaltyVal, maxArr);
-							not0count -= setPenalty(t, ii, jj, kk, ll, rr, ss, resid, penaltyVal, maxArr);
+							not0count -= setPenalty(t, i, j, k, l, r, s, resid, penaltyVal, maxArr[2]);
+							not0count -= setPenalty(t, ii, jj, kk, ll, rr, ss, resid, penaltyVal, maxArr[2]);
 						}
-						not000000 = ((bool)not0count) && not000000;
-						maxNotNull = std::max(not0count, maxNotNull);
+						not000000 = (not0count != 0) && not000000;
+						maxNotNull = max(not0count, maxNotNull);
 					}
 	if (not000000)
 		return maxNotNull;
@@ -363,9 +412,7 @@ int setPenaltyFunction(double resid, double penaltyVal){
 int nextApprox(double& delta, double& residual){
 	prepareBCmul();
 
-	double theirResid = prepareLLSSolPart();
-	double newResid = getResidual(true);
-	double diff = theirResid - newResid;
+	double newResid = prepareLLSSolPart();
 
 	if (newResid < 0) {
 		residual = MAXRESID + 1;
@@ -390,16 +437,17 @@ int nextApprox(double& delta, double& residual){
 	return 0;
 }
 
-void getSolutionWithNulls(double resid){
+void getSolutionWithNulls(bool without0){
 	double residSystem = 0.2;
 	double penaltyVal = 0.0001;
-	double delta = MAXDELTA + 1;
-	double residual;
 	int countNot0 = 6;
+
+	int countNot0Prev = 0;
+
 	while (residSystem < 0.4 && residSystem > 0.1 && penaltyVal < 1000000 && countNot0 > 2 && countNot0 < 7) {
 		long cycle = 0;
-		delta = MAXDELTA + 1;
-		residual = MAXRESID;
+		double delta = MAXDELTA + 1;
+		double residual = MAXRESID + 1;
 		while (abs(delta) > MAXDELTA) {
 			if (nextApprox(delta, residual))
 				break;
@@ -408,62 +456,69 @@ void getSolutionWithNulls(double resid){
 			if (cycle % 500 == 0)
 				std::cout << "cycle = " << cycle << " penalty = " << penaltyVal << std::endl;
 		}
+		if (without0)
+			break;
 		prepareBCmul();
 		residSystem = getResidual(false);
 		countNot0 = setPenaltyFunction(residSystem, penaltyVal);
-		printApprox(fileNames[countNot0], residSystem, WANTED[countNot0]);
+		if (countNot0Prev != countNot0)
+			printApprox(fileNames[countNot0], residSystem, WANTED[countNot0]);
+		countNot0Prev = countNot0;
 		penaltyVal *= 1.01;
+		/*	if (countNot0 < 4) {
+				findFuncApproxSolution();
+				}*/
 	}
 }
 
 void findSolutions() {
-	double residual, delta;
 	long attempt = 0;
-
 	while (true) {
 		setRandomInitialBC();
 		memset(penalty, 0, sizeof(penalty));
-
-		delta = MAXDELTA + 1;
-		residual = MAXRESID + 1;
-
-		long cycle = 0;
-		while (abs(delta) > MAXDELTA) {
-#ifdef _DEBUG 
-			//double t = omp_get_wtime();
-#endif
-			if (nextApprox(delta, residual))
-				break;
-			cycle++;
-			if (cycle % 5000 == 0)
-				std::cout << "cycle = " << cycle << std::endl;
-
-#ifdef _DEBUG
-			//std::cout << omp_get_wtime() - t << std::endl;
-			//t = omp_get_wtime();
-#endif
-		}
-		prepareBCmul();
-		double residSystem = getResidual(false);
-		printApprox(fileNames[6], residSystem, WANTED[6]);
-		if (residSystem < 1)
-			getSolutionWithNulls(residual);
+		getSolutionWithNulls(false);
 		attempt++;
 		if (attempt % 10 == 0){
 			std::cout << "attempt = " << attempt << std::endl;
-			std::cout << "resid = " << residSystem << std::endl;
 		}
+	}
+}
+
+void toTrefilov(){
+	std::ifstream inputFile;
+	inputFile.open("input.txt", std::ifstream::in);
+	while (!inputFile.eof()){
+		readMatrixesABC(inputFile);
+		normalizeABC();
+		prepareBCmul();
+		//printApprox(fileNames[0], getResidual(false), WANTED[3]);
+		printForTrefilov();
+	}
+}
+
+void motzkin(){
+	std::ifstream inputFile;
+	inputFile.open("input.txt", std::ifstream::in);
+	int count = 0;
+	while (!inputFile.eof()) {
+		readMatrixesABC(inputFile);
+		normalizeABC();
+
+		prepareBCmul();
+		printApprox(fileNames[0], getResidual(false), WANTED[3]);
+		printForTrefilov();
+		count++;
+		findFuncApproxSolution();
 	}
 }
 
 void morePrecise() {
 	double residual = MAXRESID, delta = 1;
 
-	readMatrixesABC("input.txt");
+	std::ifstream inputFile;
+	inputFile.open("input.txt", std::ifstream::in);
+	readMatrixesABC(inputFile);
 	normalizeABC();
-
-	prepareBCmul();
-	printForTrefilov();
 
 	for (int trial = 0; trial < MAXITER; trial++) {
 		std::cout << trial << std::endl;
@@ -506,7 +561,7 @@ int main(int argc, char* argv[]) {
 	logger.close();
 #else
 	for (int i = 0; i < 8; i++) {
-		sprintf_s(fileNames[i], "loggerFind%d_maxint%d_%dproc.txt", i, MAXMATRIXINT, k);
+		sprintf_s(fileNames[i], "loggerFind%d_maxint%d_complex%d_%dproc.txt", i, MAXMATRIXINT, COMP, k);
 		logger.open(fileNames[i]);
 		logger << std::fixed;
 		logger.precision(15);
@@ -522,16 +577,15 @@ int main(int argc, char* argv[]) {
 		c[i] = new ComplexArray[1];
 	}
 
-#ifndef GROUP2
 	setStaticBruteForce();
-	setStaticNumerationLSVariables();
-#endif
-
 
 #ifdef PRECISE
-	morePrecise();
+	motzkin();
+	//morePrecise();
+	//toTrefilov();
 #else
-	findSolutions();
+	//findSolutions();
+	motzkin();
 #endif
 
 

@@ -24,7 +24,7 @@ void fillLLSsub(int i, int j, int notIJ00shift, Complex(&arr)[ROWS][COLS], Compl
 	int rowInit = 0;
 	int rows = ROWS;
 	int cols = COLS;
-	int addition13 = 0;
+	//int addition13 = 0;
 	for (int k = 0; k < (notIJ00shift ? N : 2); k++) {
 		for (int l = 0; l < (notIJ00shift ? N : k + 2); l++)
 			for (int r = 0; r < (notIJ00shift ? N : N - !(k + l)); r++){
